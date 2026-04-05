@@ -36,6 +36,8 @@ impl BulletStatus {
             "➡️" | "➡" => Ok(Self::Migrated),
             "❌" => Ok(Self::Cancelled),
             "📥" => Ok(Self::Backlogged),
+            // Legacy: treat old event/note emoji as Open
+            "📅" | "📝" => Ok(Self::Open),
             _ => Err(crate::error::Error::UnknownStatusEmoji {
                 emoji: trimmed.to_string(),
             }),
