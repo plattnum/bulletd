@@ -18,7 +18,7 @@ use ratatui::widgets::{
 };
 
 use bulletd_core::config::Config;
-use bulletd_core::model::{Bullet, BulletStatus, BulletType};
+use bulletd_core::model::{Bullet, BulletStatus};
 use bulletd_core::ops::Store;
 
 use crate::theme::Theme;
@@ -40,10 +40,8 @@ struct InputState {
 }
 
 enum InputPurpose {
-    /// Adding a new bullet — need to choose type first.
-    AddChooseType,
     /// Adding a new bullet — entering text.
-    AddText { bullet_type: BulletType },
+    AddText,
     /// Editing an existing bullet's text.
     EditText { bullet_id: String },
     /// Adding a note to an existing bullet.
@@ -119,7 +117,7 @@ impl App {
     }
 
     fn reload_bullets(&mut self) {
-        match self.store.list_bullets(self.current_date, None, None) {
+        match self.store.list_bullets(self.current_date, None) {
             Ok(bullets) => {
                 self.bullets = bullets;
                 self.status_message = None;
@@ -442,17 +440,13 @@ impl App {
     fn start_add_bullet(&mut self) {
         self.mode = ViewMode::Input(InputState {
             buffer: String::new(),
-            purpose: InputPurpose::AddChooseType,
+            purpose: InputPurpose::AddText,
         });
         self.status_message = None;
     }
 
     fn start_edit_bullet(&mut self) {
         if let Some(bullet) = self.bullets.get(self.selected) {
-            if bullet.status.is_immutable() {
-                self.status_message = Some("Cannot edit events or notes".to_string());
-                return;
-            }
             self.mode = ViewMode::Input(InputState {
                 buffer: bullet.text.clone(),
                 purpose: InputPurpose::EditText {
@@ -476,49 +470,6 @@ impl App {
     }
 
     fn handle_key_input(&mut self, key: KeyCode) {
-        // Extract purpose to determine behavior
-        let is_choose_type = matches!(
-            self.mode,
-            ViewMode::Input(InputState {
-                purpose: InputPurpose::AddChooseType,
-                ..
-            })
-        );
-
-        if is_choose_type {
-            match key {
-                KeyCode::Char('t') => {
-                    self.mode = ViewMode::Input(InputState {
-                        buffer: String::new(),
-                        purpose: InputPurpose::AddText {
-                            bullet_type: BulletType::Task,
-                        },
-                    });
-                }
-                KeyCode::Char('e') => {
-                    self.mode = ViewMode::Input(InputState {
-                        buffer: String::new(),
-                        purpose: InputPurpose::AddText {
-                            bullet_type: BulletType::Event,
-                        },
-                    });
-                }
-                KeyCode::Char('n') => {
-                    self.mode = ViewMode::Input(InputState {
-                        buffer: String::new(),
-                        purpose: InputPurpose::AddText {
-                            bullet_type: BulletType::Note,
-                        },
-                    });
-                }
-                KeyCode::Esc => {
-                    self.mode = ViewMode::DailyLog;
-                }
-                _ => {}
-            }
-            return;
-        }
-
         // Text input mode
         match key {
             KeyCode::Enter => self.submit_input(),
@@ -552,11 +503,8 @@ impl App {
         }
 
         match purpose {
-            InputPurpose::AddChooseType => {} // shouldn't happen
-            InputPurpose::AddText { bullet_type } => {
-                let bt = *bullet_type;
+            InputPurpose::AddText => {
                 match self.store.add_bullet(
-                    bt,
                     buffer.trim().to_string(),
                     vec![],
                     Some(self.current_date),
@@ -831,12 +779,8 @@ impl App {
         };
 
         let (prompt_text, hint) = match &state.purpose {
-            InputPurpose::AddChooseType => (
-                "Add bullet — choose type: [t]ask  [e]vent  [n]ote".to_string(),
-                "Esc: cancel",
-            ),
-            InputPurpose::AddText { bullet_type } => (
-                format!("New {} > {}▏", bullet_type.display_name(), state.buffer),
+            InputPurpose::AddText => (
+                format!("New bullet > {}▏", state.buffer),
                 "Enter: add  Esc: cancel",
             ),
             InputPurpose::EditText { .. } => (
@@ -1220,8 +1164,6 @@ impl App {
             BulletStatus::Migrated => self.theme.accent,
             BulletStatus::Cancelled => self.theme.error,
             BulletStatus::Backlogged => self.theme.warning,
-            BulletStatus::Event => self.theme.accent,
-            BulletStatus::Note => self.theme.muted,
         };
         Style::default().fg(color)
     }

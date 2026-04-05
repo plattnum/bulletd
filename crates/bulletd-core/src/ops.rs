@@ -12,8 +12,7 @@ use crate::error::Error;
 use crate::error::UnmigrateOutcome;
 use crate::id::generate_id;
 use crate::model::{
-    BacklogLog, Bullet, BulletStatus, BulletType, DailyLog, MigrationFrom, MigrationTarget,
-    MigrationTo,
+    BacklogLog, Bullet, BulletStatus, DailyLog, MigrationFrom, MigrationTarget, MigrationTo,
 };
 use crate::parser::{parse_backlog, parse_daily_log};
 use crate::serializer::{write_backlog, write_daily_log};
@@ -98,10 +97,10 @@ impl Store {
     /// Add a new bullet to a day's log.
     ///
     /// If `date` is None, defaults to today.
+    /// All new bullets start as Open (📌).
     /// Returns the created bullet (including its generated ID).
     pub fn add_bullet(
         &self,
-        bullet_type: BulletType,
         text: String,
         notes: Vec<String>,
         date: Option<NaiveDate>,
@@ -110,7 +109,7 @@ impl Store {
         let mut log = self.load_daily_log(date)?;
 
         let id = self.generate_unique_id(&log.bullets);
-        let status = bullet_type.default_status();
+        let status = BulletStatus::Open;
 
         let bullet = Bullet {
             id,
@@ -146,15 +145,6 @@ impl Store {
                     location: date.to_string(),
                     id: id.to_string(),
                 })?;
-
-        // Check immutability
-        if bullet.status.is_immutable() {
-            return Err(Error::ImmutableBullet {
-                location: date.to_string(),
-                id: id.to_string(),
-                bullet_type: bullet.bullet_type().display_name().to_string(),
-            });
-        }
 
         if let Some(text) = new_text {
             bullet.text = text;
@@ -219,7 +209,7 @@ impl Store {
         Ok(())
     }
 
-    /// Internal: set a task's status, validating it's a task in Open state.
+    /// Internal: set a bullet's status.
     fn set_task_status(
         &self,
         date: NaiveDate,
@@ -236,15 +226,6 @@ impl Store {
                     location: date.to_string(),
                     id: id.to_string(),
                 })?;
-
-        // Notes are immutable
-        if bullet.status == BulletStatus::Note {
-            return Err(Error::NotATask {
-                date: date.to_string(),
-                id: id.to_string(),
-                bullet_type: "note".to_string(),
-            });
-        }
 
         // Already in the target status — no-op
         if bullet.status == new_status {
@@ -281,17 +262,7 @@ impl Store {
                 id: source_id.to_string(),
             })?;
 
-        if !source_bullet.is_actionable() {
-            return Err(Error::NotATask {
-                date: source_date.to_string(),
-                id: source_id.to_string(),
-                bullet_type: source_bullet.bullet_type().display_name().to_string(),
-            });
-        }
-        if !matches!(
-            source_bullet.status,
-            BulletStatus::Open | BulletStatus::Event
-        ) {
+        if source_bullet.status != BulletStatus::Open {
             return Err(Error::InvalidStatusTransition {
                 from: source_bullet.status.display_name().to_string(),
                 to: "migrated".to_string(),
@@ -448,17 +419,7 @@ impl Store {
                 id: source_id.to_string(),
             })?;
 
-        if !source_bullet.is_actionable() {
-            return Err(Error::NotATask {
-                date: source_date.to_string(),
-                id: source_id.to_string(),
-                bullet_type: source_bullet.bullet_type().display_name().to_string(),
-            });
-        }
-        if !matches!(
-            source_bullet.status,
-            BulletStatus::Open | BulletStatus::Event
-        ) {
+        if source_bullet.status != BulletStatus::Open {
             return Err(Error::InvalidStatusTransition {
                 from: source_bullet.status.display_name().to_string(),
                 to: "backlogged".to_string(),
@@ -535,11 +496,10 @@ impl Store {
             .collect())
     }
 
-    /// List bullets for a date with optional filters.
+    /// List bullets for a date with optional status filter.
     pub fn list_bullets(
         &self,
         date: NaiveDate,
-        type_filter: Option<BulletType>,
         status_filter: Option<BulletStatus>,
     ) -> crate::error::Result<Vec<Bullet>> {
         let log = self.load_daily_log(date)?;
@@ -547,11 +507,6 @@ impl Store {
             .bullets
             .into_iter()
             .filter(|b| {
-                if let Some(t) = type_filter
-                    && b.bullet_type() != t
-                {
-                    return false;
-                }
                 if let Some(s) = status_filter
                     && b.status != s
                 {
@@ -632,17 +587,12 @@ mod tests {
     }
 
     #[test]
-    fn add_task_to_empty_day() {
+    fn add_bullet_to_empty_day() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(
-                BulletType::Task,
-                "Fix the bug".to_string(),
-                vec![],
-                Some(date),
-            )
+            .add_bullet("Fix the bug".to_string(), vec![], Some(date))
             .unwrap();
 
         assert_eq!(bullet.status, BulletStatus::Open);
@@ -656,37 +606,19 @@ mod tests {
     }
 
     #[test]
-    fn add_event() {
+    fn add_bullet_with_notes() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
             .add_bullet(
-                BulletType::Event,
-                "Sprint planning 10am".to_string(),
-                vec![],
-                Some(date),
-            )
-            .unwrap();
-
-        assert_eq!(bullet.status, BulletStatus::Event);
-    }
-
-    #[test]
-    fn add_note() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-
-        let bullet = store
-            .add_bullet(
-                BulletType::Note,
                 "Important context".to_string(),
                 vec!["Detail one".to_string()],
                 Some(date),
             )
             .unwrap();
 
-        assert_eq!(bullet.status, BulletStatus::Note);
+        assert_eq!(bullet.status, BulletStatus::Open);
         assert_eq!(bullet.notes.len(), 1);
     }
 
@@ -696,10 +628,10 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let b1 = store
-            .add_bullet(BulletType::Task, "First".to_string(), vec![], Some(date))
+            .add_bullet("First".to_string(), vec![], Some(date))
             .unwrap();
         let b2 = store
-            .add_bullet(BulletType::Task, "Second".to_string(), vec![], Some(date))
+            .add_bullet("Second".to_string(), vec![], Some(date))
             .unwrap();
 
         let log = store.load_daily_log(date).unwrap();
@@ -716,10 +648,10 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let b1 = store
-            .add_bullet(BulletType::Task, "First".to_string(), vec![], Some(date))
+            .add_bullet("First".to_string(), vec![], Some(date))
             .unwrap();
         store
-            .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
+            .add_bullet("Meeting".to_string(), vec![], Some(date))
             .unwrap();
 
         let log = store.load_daily_log(date).unwrap();
@@ -734,7 +666,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Old text".to_string(), vec![], Some(date))
+            .add_bullet("Old text".to_string(), vec![], Some(date))
             .unwrap();
 
         let updated = store
@@ -751,7 +683,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Task".to_string(), vec![], Some(date))
+            .add_bullet("Task".to_string(), vec![], Some(date))
             .unwrap();
 
         let updated = store
@@ -777,40 +709,12 @@ mod tests {
     }
 
     #[test]
-    fn update_event_succeeds() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-
-        let event = store
-            .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
-            .unwrap();
-
-        let updated = store
-            .update_bullet(date, &event.id, Some("Changed".to_string()), None)
-            .unwrap();
-        assert_eq!(updated.text, "Changed");
-    }
-
-    #[test]
-    fn update_note_fails() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-
-        let note = store
-            .add_bullet(BulletType::Note, "Info".to_string(), vec![], Some(date))
-            .unwrap();
-
-        let result = store.update_bullet(date, &note.id, Some("Changed".to_string()), None);
-        assert!(matches!(result, Err(Error::ImmutableBullet { .. })));
-    }
-
-    #[test]
     fn complete_task_success() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Do thing".to_string(), vec![], Some(date))
+            .add_bullet("Do thing".to_string(), vec![], Some(date))
             .unwrap();
 
         let completed = store.complete_task(date, &bullet.id).unwrap();
@@ -827,37 +731,11 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Do thing".to_string(), vec![], Some(date))
+            .add_bullet("Do thing".to_string(), vec![], Some(date))
             .unwrap();
 
         let cancelled = store.cancel_task(date, &bullet.id).unwrap();
         assert_eq!(cancelled.status, BulletStatus::Cancelled);
-    }
-
-    #[test]
-    fn complete_event_succeeds() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-
-        let event = store
-            .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
-            .unwrap();
-
-        let completed = store.complete_task(date, &event.id).unwrap();
-        assert_eq!(completed.status, BulletStatus::Done);
-    }
-
-    #[test]
-    fn complete_note_fails() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-
-        let note = store
-            .add_bullet(BulletType::Note, "Info".to_string(), vec![], Some(date))
-            .unwrap();
-
-        let result = store.complete_task(date, &note.id);
-        assert!(matches!(result, Err(Error::NotATask { .. })));
     }
 
     #[test]
@@ -866,7 +744,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Do thing".to_string(), vec![], Some(date))
+            .add_bullet("Do thing".to_string(), vec![], Some(date))
             .unwrap();
 
         store.complete_task(date, &bullet.id).unwrap();
@@ -882,7 +760,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Do thing".to_string(), vec![], Some(date))
+            .add_bullet("Do thing".to_string(), vec![], Some(date))
             .unwrap();
 
         store.cancel_task(date, &bullet.id).unwrap();
@@ -901,12 +779,7 @@ mod tests {
         let target = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap();
 
         let bullet = store
-            .add_bullet(
-                BulletType::Task,
-                "Migrate me".to_string(),
-                vec![],
-                Some(date),
-            )
+            .add_bullet("Migrate me".to_string(), vec![], Some(date))
             .unwrap();
 
         let (source, target_bullet) = store.migrate_task(date, &bullet.id, Some(target)).unwrap();
@@ -937,7 +810,7 @@ mod tests {
         let tomorrow = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Task".to_string(), vec![], Some(date))
+            .add_bullet("Task".to_string(), vec![], Some(date))
             .unwrap();
 
         let (source, _) = store.migrate_task(date, &bullet.id, None).unwrap();
@@ -955,21 +828,11 @@ mod tests {
 
         // Add a bullet to the target day first
         store
-            .add_bullet(
-                BulletType::Task,
-                "Existing task".to_string(),
-                vec![],
-                Some(target),
-            )
+            .add_bullet("Existing task".to_string(), vec![], Some(target))
             .unwrap();
 
         let bullet = store
-            .add_bullet(
-                BulletType::Task,
-                "Migrate me".to_string(),
-                vec![],
-                Some(date),
-            )
+            .add_bullet("Migrate me".to_string(), vec![], Some(date))
             .unwrap();
 
         store.migrate_task(date, &bullet.id, Some(target)).unwrap();
@@ -981,32 +844,12 @@ mod tests {
     }
 
     #[test]
-    fn migrate_event_succeeds() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-        let target = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap();
-
-        let event = store
-            .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
-            .unwrap();
-
-        let (source, target_bullet) = store.migrate_task(date, &event.id, Some(target)).unwrap();
-        assert_eq!(source.status, BulletStatus::Migrated);
-        assert_eq!(target_bullet.status, BulletStatus::Open);
-    }
-
-    #[test]
     fn migrate_done_task_fails() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(
-                BulletType::Task,
-                "Done task".to_string(),
-                vec![],
-                Some(date),
-            )
+            .add_bullet("Done task".to_string(), vec![], Some(date))
             .unwrap();
         store.complete_task(date, &bullet.id).unwrap();
 
@@ -1023,7 +866,7 @@ mod tests {
         let target = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Task".to_string(), vec![], Some(date))
+            .add_bullet("Task".to_string(), vec![], Some(date))
             .unwrap();
 
         store.migrate_task(date, &bullet.id, Some(target)).unwrap();
@@ -1049,7 +892,7 @@ mod tests {
         let target = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Task".to_string(), vec![], Some(date))
+            .add_bullet("Task".to_string(), vec![], Some(date))
             .unwrap();
 
         let (_, target_bullet) = store.migrate_task(date, &bullet.id, Some(target)).unwrap();
@@ -1081,7 +924,7 @@ mod tests {
         let d3 = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
 
         let bullet = store
-            .add_bullet(BulletType::Task, "Task".to_string(), vec![], Some(d1))
+            .add_bullet("Task".to_string(), vec![], Some(d1))
             .unwrap();
 
         let (_, target1) = store.migrate_task(d1, &bullet.id, Some(d2)).unwrap();
@@ -1100,12 +943,7 @@ mod tests {
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         let bullet = store
-            .add_bullet(
-                BulletType::Task,
-                "Low priority".to_string(),
-                vec![],
-                Some(date),
-            )
+            .add_bullet("Low priority".to_string(), vec![], Some(date))
             .unwrap();
 
         let (source, backlog_bullet) = store.backlog_task(date, &bullet.id).unwrap();
@@ -1131,39 +969,22 @@ mod tests {
         assert_eq!(backlog.bullets.len(), 1);
     }
 
-    #[test]
-    fn backlog_event_succeeds() {
-        let (_dir, store) = test_store();
-        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
-
-        let event = store
-            .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
-            .unwrap();
-
-        let (source, backlog_bullet) = store.backlog_task(date, &event.id).unwrap();
-        assert_eq!(source.status, BulletStatus::Backlogged);
-        assert_eq!(backlog_bullet.text, "Meeting");
-    }
-
     // -- Query tests --
 
     #[test]
-    fn daily_review_returns_open_tasks() {
+    fn daily_review_returns_open_bullets() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         store
-            .add_bullet(BulletType::Task, "Open 1".to_string(), vec![], Some(date))
+            .add_bullet("Open 1".to_string(), vec![], Some(date))
             .unwrap();
         let b2 = store
-            .add_bullet(BulletType::Task, "Done".to_string(), vec![], Some(date))
+            .add_bullet("Done".to_string(), vec![], Some(date))
             .unwrap();
         store.complete_task(date, &b2.id).unwrap();
         store
-            .add_bullet(BulletType::Task, "Open 2".to_string(), vec![], Some(date))
-            .unwrap();
-        store
-            .add_bullet(BulletType::Event, "Event".to_string(), vec![], Some(date))
+            .add_bullet("Open 2".to_string(), vec![], Some(date))
             .unwrap();
 
         let open = store.daily_review(date).unwrap();
@@ -1173,25 +994,24 @@ mod tests {
     }
 
     #[test]
-    fn list_bullets_with_type_filter() {
+    fn list_bullets_with_status_filter() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
         store
-            .add_bullet(BulletType::Task, "Task".to_string(), vec![], Some(date))
+            .add_bullet("Open one".to_string(), vec![], Some(date))
             .unwrap();
-        store
-            .add_bullet(BulletType::Event, "Event".to_string(), vec![], Some(date))
+        let b2 = store
+            .add_bullet("Done one".to_string(), vec![], Some(date))
             .unwrap();
+        store.complete_task(date, &b2.id).unwrap();
         store
-            .add_bullet(BulletType::Note, "Note".to_string(), vec![], Some(date))
+            .add_bullet("Open two".to_string(), vec![], Some(date))
             .unwrap();
 
-        let events = store
-            .list_bullets(date, Some(BulletType::Event), None)
-            .unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].text, "Event");
+        let done = store.list_bullets(date, Some(BulletStatus::Done)).unwrap();
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].text, "Done one");
     }
 
     #[test]
@@ -1202,12 +1022,7 @@ mod tests {
         let d3 = NaiveDate::from_ymd_opt(2026, 4, 12).unwrap();
 
         let bullet = store
-            .add_bullet(
-                BulletType::Task,
-                "Persistent task".to_string(),
-                vec![],
-                Some(d1),
-            )
+            .add_bullet("Persistent task".to_string(), vec![], Some(d1))
             .unwrap();
 
         let (_, t1) = store.migrate_task(d1, &bullet.id, Some(d2)).unwrap();

@@ -5,13 +5,11 @@
   Format: GFM table with columns: Status | Bullet | Notes | Migration | ID
 
   Status Emoji Reference:
-    📌  Open task — not yet acted on
+    📌  Open — not yet acted on
     ✅  Done — completed
     ➡️  Migrated — moved to another day
     ❌  Cancelled — dropped
     📥  Backlogged — moved to backlog.md
-    📅  Event — something that happened or is scheduled
-    📝  Note — information, context, thoughts
 
   Notes: Optional context. Use <br> for multiple lines.
 

@@ -67,20 +67,6 @@ pub enum Error {
     #[error("duplicate ID {id} in file {path}")]
     DuplicateId { id: String, path: PathBuf },
 
-    #[error("bullet {date}/{id} is not a task (type: {bullet_type})")]
-    NotATask {
-        date: String,
-        id: String,
-        bullet_type: String,
-    },
-
-    #[error("cannot modify {bullet_type} bullet {location}/{id}: events and notes are immutable")]
-    ImmutableBullet {
-        location: String,
-        id: String,
-        bullet_type: String,
-    },
-
     // -- Migration errors --
     #[error(
         "cannot unmigrate {date}/{id}: target bullet has been migrated onward — cancel the leaf task first"

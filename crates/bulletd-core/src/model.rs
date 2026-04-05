@@ -1,25 +1,18 @@
 use chrono::NaiveDate;
 
-/// The status/type marker for a bullet, represented as a single emoji.
-///
-/// For tasks, the emoji reflects the current state (open, done, migrated, etc.).
-/// For events and notes, the emoji is fixed and never changes.
+/// The status marker for a bullet, represented as a single emoji.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BulletStatus {
-    /// 📌 — Open task, not yet acted on
+    /// 📌 — Open, not yet acted on
     Open,
-    /// ✅ — Task completed
+    /// ✅ — Completed
     Done,
-    /// ➡️ — Task moved to another day
+    /// ➡️ — Moved to another day
     Migrated,
-    /// ❌ — Task dropped
+    /// ❌ — Dropped
     Cancelled,
-    /// 📥 — Task moved to backlog
+    /// 📥 — Moved to backlog
     Backlogged,
-    /// 📅 — Event (immutable)
-    Event,
-    /// 📝 — Note (immutable)
-    Note,
 }
 
 impl BulletStatus {
@@ -31,8 +24,6 @@ impl BulletStatus {
             Self::Migrated => "➡️",
             Self::Cancelled => "❌",
             Self::Backlogged => "📥",
-            Self::Event => "📅",
-            Self::Note => "📝",
         }
     }
 
@@ -45,24 +36,10 @@ impl BulletStatus {
             "➡️" | "➡" => Ok(Self::Migrated),
             "❌" => Ok(Self::Cancelled),
             "📥" => Ok(Self::Backlogged),
-            "📅" => Ok(Self::Event),
-            "📝" => Ok(Self::Note),
             _ => Err(crate::error::Error::UnknownStatusEmoji {
                 emoji: trimmed.to_string(),
             }),
         }
-    }
-
-    /// Whether this status represents a task (as opposed to an event or note).
-    /// Whether this is an actionable bullet (task or event). Both can be completed,
-    /// cancelled, migrated, etc. Notes are the only non-actionable type.
-    pub fn is_actionable(&self) -> bool {
-        !matches!(self, Self::Note)
-    }
-
-    /// Whether this bullet is immutable (only notes cannot change status).
-    pub fn is_immutable(&self) -> bool {
-        matches!(self, Self::Note)
     }
 
     /// Display name for error messages.
@@ -73,47 +50,6 @@ impl BulletStatus {
             Self::Migrated => "migrated",
             Self::Cancelled => "cancelled",
             Self::Backlogged => "backlogged",
-            Self::Event => "event",
-            Self::Note => "note",
-        }
-    }
-}
-
-/// The logical type of a bullet (task, event, or note).
-/// This is derived from the status — tasks have stateful statuses,
-/// events and notes are fixed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BulletType {
-    Task,
-    Event,
-    Note,
-}
-
-impl BulletType {
-    /// Derive the bullet type from a status.
-    pub fn from_status(status: BulletStatus) -> Self {
-        match status {
-            BulletStatus::Event => Self::Event,
-            BulletStatus::Note => Self::Note,
-            _ => Self::Task,
-        }
-    }
-
-    /// Display name for error messages and CLI prompts.
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Task => "task",
-            Self::Event => "event",
-            Self::Note => "note",
-        }
-    }
-
-    /// The default status for a new bullet of this type.
-    pub fn default_status(&self) -> BulletStatus {
-        match self {
-            Self::Task => BulletStatus::Open,
-            Self::Event => BulletStatus::Event,
-            Self::Note => BulletStatus::Note,
         }
     }
 }
@@ -158,17 +94,7 @@ pub struct Bullet {
     pub migrated_from: Option<MigrationFrom>,
 }
 
-impl Bullet {
-    /// Get the logical type of this bullet.
-    pub fn bullet_type(&self) -> BulletType {
-        BulletType::from_status(self.status)
-    }
-
-    /// Whether this bullet is actionable (task or event — not a note).
-    pub fn is_actionable(&self) -> bool {
-        self.status.is_actionable()
-    }
-}
+impl Bullet {}
 
 /// A daily log containing all bullets for a single day.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,8 +123,6 @@ mod tests {
             BulletStatus::Migrated,
             BulletStatus::Cancelled,
             BulletStatus::Backlogged,
-            BulletStatus::Event,
-            BulletStatus::Note,
         ];
 
         for status in &statuses {
@@ -216,8 +140,6 @@ mod tests {
             (" ➡️ ", BulletStatus::Migrated),
             ("  ❌  ", BulletStatus::Cancelled),
             (" 📥 ", BulletStatus::Backlogged),
-            ("  📅  ", BulletStatus::Event),
-            (" 📝 ", BulletStatus::Note),
         ];
 
         for (input, expected) in &cases {
@@ -250,51 +172,5 @@ mod tests {
                 "migrated parsing failed for input: {input:?}"
             );
         }
-    }
-
-    #[test]
-    fn status_is_actionable() {
-        assert!(BulletStatus::Open.is_actionable());
-        assert!(BulletStatus::Done.is_actionable());
-        assert!(BulletStatus::Migrated.is_actionable());
-        assert!(BulletStatus::Cancelled.is_actionable());
-        assert!(BulletStatus::Backlogged.is_actionable());
-        assert!(BulletStatus::Event.is_actionable());
-        assert!(!BulletStatus::Note.is_actionable());
-    }
-
-    #[test]
-    fn status_is_immutable() {
-        assert!(!BulletStatus::Event.is_immutable());
-        assert!(BulletStatus::Note.is_immutable());
-        assert!(!BulletStatus::Open.is_immutable());
-        assert!(!BulletStatus::Done.is_immutable());
-    }
-
-    #[test]
-    fn bullet_type_from_status() {
-        assert_eq!(
-            BulletType::from_status(BulletStatus::Open),
-            BulletType::Task
-        );
-        assert_eq!(
-            BulletType::from_status(BulletStatus::Done),
-            BulletType::Task
-        );
-        assert_eq!(
-            BulletType::from_status(BulletStatus::Event),
-            BulletType::Event
-        );
-        assert_eq!(
-            BulletType::from_status(BulletStatus::Note),
-            BulletType::Note
-        );
-    }
-
-    #[test]
-    fn bullet_type_default_status() {
-        assert_eq!(BulletType::Task.default_status(), BulletStatus::Open);
-        assert_eq!(BulletType::Event.default_status(), BulletStatus::Event);
-        assert_eq!(BulletType::Note.default_status(), BulletStatus::Note);
     }
 }

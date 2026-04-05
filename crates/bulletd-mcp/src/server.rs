@@ -8,7 +8,7 @@ use rmcp::{ServerHandler, tool, tool_router};
 use serde_json::json;
 
 use bulletd_core::config::Config;
-use bulletd_core::model::{BulletStatus, BulletType};
+use bulletd_core::model::BulletStatus;
 use bulletd_core::ops::Store;
 
 use crate::params::*;
@@ -44,15 +44,8 @@ impl BulletdMcpServer {
         }
     }
 
-    #[tool(description = "Add a bullet (task, event, or note) to a day's log")]
+    #[tool(description = "Add a bullet to a day's log")]
     fn add_bullet(&self, Parameters(params): Parameters<AddBulletParams>) -> String {
-        let bullet_type = match params.bullet_type.as_str() {
-            "task" => BulletType::Task,
-            "event" => BulletType::Event,
-            "note" => BulletType::Note,
-            other => return json!({"error": format!("invalid type: {other}")}).to_string(),
-        };
-
         let date = match parse_optional_date(params.date.as_deref()) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
@@ -60,11 +53,7 @@ impl BulletdMcpServer {
 
         let notes = params.notes.unwrap_or_default();
 
-        match self
-            .state
-            .store
-            .add_bullet(bullet_type, params.text, notes, Some(date))
-        {
+        match self.state.store.add_bullet(params.text, notes, Some(date)) {
             Ok(bullet) => json!({
                 "id": bullet.id,
                 "status": bullet.status.as_emoji(),
@@ -76,21 +65,16 @@ impl BulletdMcpServer {
         }
     }
 
-    #[tool(description = "List bullets for a date with optional filters")]
+    #[tool(description = "List bullets for a date with optional status filter")]
     fn list_bullets(&self, Parameters(params): Parameters<ListBulletsParams>) -> String {
         let date = match parse_optional_date(params.date.as_deref()) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
         };
 
-        let type_filter = params.bullet_type.as_deref().and_then(parse_bullet_type);
         let status_filter = params.status.as_deref().and_then(parse_bullet_status);
 
-        match self
-            .state
-            .store
-            .list_bullets(date, type_filter, status_filter)
-        {
+        match self.state.store.list_bullets(date, status_filter) {
             Ok(bullets) => {
                 let items: Vec<_> = bullets
                     .iter()
@@ -326,15 +310,6 @@ fn parse_optional_date(s: Option<&str>) -> Result<NaiveDate, String> {
     match s {
         Some(s) => parse_date(s),
         None => Ok(Local::now().date_naive()),
-    }
-}
-
-fn parse_bullet_type(s: &str) -> Option<BulletType> {
-    match s {
-        "task" => Some(BulletType::Task),
-        "event" => Some(BulletType::Event),
-        "note" => Some(BulletType::Note),
-        _ => None,
     }
 }
 

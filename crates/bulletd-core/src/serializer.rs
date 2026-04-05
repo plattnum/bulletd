@@ -12,13 +12,11 @@ const FILE_HEADER: &str = r#"<!--
   Format: GFM table with columns: Status | Bullet | Notes | Migration | ID
 
   Status Emoji Reference:
-    📌  Open task — not yet acted on
+    📌  Open — not yet acted on
     ✅  Done — completed
     ➡️  Migrated — moved to another day
     ❌  Cancelled — dropped
     📥  Backlogged — moved to backlog.md
-    📅  Event — something that happened or is scheduled
-    📝  Note — information, context, thoughts
 
   Notes: Optional context. Use <br> for multiple lines.
 
@@ -371,7 +369,7 @@ mod tests {
             date: NaiveDate::from_ymd_opt(2026, 4, 10).unwrap(),
             bullets: vec![Bullet {
                 id: "a1b2c3d4".to_string(),
-                status: BulletStatus::Note,
+                status: BulletStatus::Open,
                 text: "Fix Foo | Bar".to_string(),
                 notes: vec!["Note with | pipe".to_string()],
                 migrated_to: None,

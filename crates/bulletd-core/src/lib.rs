@@ -11,8 +11,7 @@ pub use config::{Config, config_path, load_config, load_config_from, resolve_dat
 pub use error::{Error, Result};
 pub use id::{generate_id, validate_id};
 pub use model::{
-    BacklogLog, Bullet, BulletStatus, BulletType, DailyLog, MigrationFrom, MigrationTarget,
-    MigrationTo,
+    BacklogLog, Bullet, BulletStatus, DailyLog, MigrationFrom, MigrationTarget, MigrationTo,
 };
 pub use ops::Store;
 pub use parser::{ParsedFile, parse_backlog, parse_daily_log, parse_file};

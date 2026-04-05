@@ -456,8 +456,8 @@ mod tests {
         assert_eq!(log.bullets[1].notes[0], "Waiting on CI to pass");
         assert_eq!(log.bullets[1].notes[1], "Approved after second round");
 
-        // Third bullet: event
-        assert_eq!(log.bullets[2].status, BulletStatus::Event);
+        // Third bullet: done (was event, now converted)
+        assert_eq!(log.bullets[2].status, BulletStatus::Done);
         assert_eq!(log.bullets[2].text, "Sprint planning 10am");
 
         // Fifth bullet: migrated task with migration link
@@ -494,12 +494,12 @@ mod tests {
             other => panic!("expected MigrationTo(Backlog), got {other:?}"),
         }
 
-        // Eighth bullet: note
-        assert_eq!(log.bullets[7].status, BulletStatus::Note);
+        // Eighth bullet: open (was note, now converted)
+        assert_eq!(log.bullets[7].status, BulletStatus::Open);
         assert_eq!(log.bullets[7].notes.len(), 2);
 
-        // Tenth bullet: note with no notes
-        assert_eq!(log.bullets[9].status, BulletStatus::Note);
+        // Tenth bullet: open (was note, now converted) with no notes
+        assert_eq!(log.bullets[9].status, BulletStatus::Open);
         assert!(log.bullets[9].notes.is_empty());
     }
 

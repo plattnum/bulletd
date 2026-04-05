@@ -3,9 +3,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AddBulletParams {
-    /// Bullet type: "task", "event", or "note"
-    #[serde(rename = "type")]
-    pub bullet_type: String,
     /// The bullet text
     pub text: String,
     /// Target date (YYYY-MM-DD). Defaults to today.
@@ -18,9 +15,6 @@ pub struct AddBulletParams {
 pub struct ListBulletsParams {
     /// Date to list bullets for (YYYY-MM-DD). Defaults to today.
     pub date: Option<String>,
-    /// Filter by type: "task", "event", or "note"
-    #[serde(rename = "type")]
-    pub bullet_type: Option<String>,
     /// Filter by status: "open", "done", "migrated", "cancelled", "backlogged"
     pub status: Option<String>,
 }
