@@ -18,15 +18,34 @@ use ratatui::widgets::{
 };
 
 use bulletd_core::config::Config;
-use bulletd_core::model::{Bullet, BulletStatus};
+use bulletd_core::model::{Bullet, BulletStatus, BulletType};
 use bulletd_core::ops::Store;
 
 use crate::theme::Theme;
+
+/// Text input state for add/edit operations.
+struct InputState {
+    /// The text buffer being edited.
+    buffer: String,
+    /// What happens when the user presses Enter.
+    purpose: InputPurpose,
+}
+
+enum InputPurpose {
+    /// Adding a new bullet — need to choose type first.
+    AddChooseType,
+    /// Adding a new bullet — entering text.
+    AddText { bullet_type: BulletType },
+    /// Editing an existing bullet's text.
+    EditText { bullet_id: String },
+}
 
 /// Which view is currently active.
 enum ViewMode {
     /// Daily log — the default view.
     DailyLog,
+    /// Text input mode (overlays on daily log).
+    Input(InputState),
     /// Review mode — step through open tasks one at a time.
     Review {
         /// Open tasks to review (IDs captured at review start).
@@ -145,6 +164,7 @@ impl App {
     fn handle_key(&mut self, key: KeyCode) {
         match &self.mode {
             ViewMode::DailyLog => self.handle_key_daily_log(key),
+            ViewMode::Input(_) => self.handle_key_input(key),
             ViewMode::Review { .. } => self.handle_key_review(key),
             ViewMode::OpenTasks { .. } => self.handle_key_open_tasks(key),
             ViewMode::MigrationHistory { .. } => self.handle_key_migration_history(key),
@@ -158,6 +178,8 @@ impl App {
             KeyCode::Char('k') | KeyCode::Up => self.move_up(),
             KeyCode::Char('[') => self.prev_day(),
             KeyCode::Char(']') => self.next_day(),
+            KeyCode::Char('a') => self.start_add_bullet(),
+            KeyCode::Char('e') => self.start_edit_bullet(),
             KeyCode::Char('d') => self.action_complete(),
             KeyCode::Char('x') => self.action_cancel(),
             KeyCode::Char('m') => self.action_migrate(),
@@ -325,6 +347,150 @@ impl App {
         }
     }
 
+    // -- Input mode (add/edit) --
+
+    fn start_add_bullet(&mut self) {
+        self.mode = ViewMode::Input(InputState {
+            buffer: String::new(),
+            purpose: InputPurpose::AddChooseType,
+        });
+        self.status_message = None;
+    }
+
+    fn start_edit_bullet(&mut self) {
+        if let Some(bullet) = self.bullets.get(self.selected) {
+            if bullet.status.is_immutable() {
+                self.status_message = Some("Cannot edit events or notes".to_string());
+                return;
+            }
+            self.mode = ViewMode::Input(InputState {
+                buffer: bullet.text.clone(),
+                purpose: InputPurpose::EditText {
+                    bullet_id: bullet.id.clone(),
+                },
+            });
+            self.status_message = None;
+        }
+    }
+
+    fn handle_key_input(&mut self, key: KeyCode) {
+        // Extract purpose to determine behavior
+        let is_choose_type = matches!(
+            self.mode,
+            ViewMode::Input(InputState {
+                purpose: InputPurpose::AddChooseType,
+                ..
+            })
+        );
+
+        if is_choose_type {
+            match key {
+                KeyCode::Char('t') => {
+                    self.mode = ViewMode::Input(InputState {
+                        buffer: String::new(),
+                        purpose: InputPurpose::AddText {
+                            bullet_type: BulletType::Task,
+                        },
+                    });
+                }
+                KeyCode::Char('e') => {
+                    self.mode = ViewMode::Input(InputState {
+                        buffer: String::new(),
+                        purpose: InputPurpose::AddText {
+                            bullet_type: BulletType::Event,
+                        },
+                    });
+                }
+                KeyCode::Char('n') => {
+                    self.mode = ViewMode::Input(InputState {
+                        buffer: String::new(),
+                        purpose: InputPurpose::AddText {
+                            bullet_type: BulletType::Note,
+                        },
+                    });
+                }
+                KeyCode::Esc => {
+                    self.mode = ViewMode::DailyLog;
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // Text input mode
+        match key {
+            KeyCode::Enter => self.submit_input(),
+            KeyCode::Esc => {
+                self.mode = ViewMode::DailyLog;
+                self.status_message = Some("Cancelled".to_string());
+            }
+            KeyCode::Backspace => {
+                if let ViewMode::Input(ref mut state) = self.mode {
+                    state.buffer.pop();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let ViewMode::Input(ref mut state) = self.mode {
+                    state.buffer.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn submit_input(&mut self) {
+        let (buffer, purpose) = match &self.mode {
+            ViewMode::Input(state) => (state.buffer.clone(), &state.purpose),
+            _ => return,
+        };
+
+        if buffer.trim().is_empty() {
+            self.status_message = Some("Text cannot be empty".to_string());
+            return;
+        }
+
+        match purpose {
+            InputPurpose::AddChooseType => {} // shouldn't happen
+            InputPurpose::AddText { bullet_type } => {
+                let bt = *bullet_type;
+                match self.store.add_bullet(
+                    bt,
+                    buffer.trim().to_string(),
+                    vec![],
+                    Some(self.current_date),
+                ) {
+                    Ok(bullet) => {
+                        self.status_message =
+                            Some(format!("Added {} ({})", bullet.text, bullet.id));
+                        self.mode = ViewMode::DailyLog;
+                        self.reload_bullets();
+                        // Select the newly added bullet (last one)
+                        if !self.bullets.is_empty() {
+                            self.selected = self.bullets.len() - 1;
+                        }
+                    }
+                    Err(e) => self.status_message = Some(format!("Error: {e}")),
+                }
+            }
+            InputPurpose::EditText { bullet_id } => {
+                let id = bullet_id.clone();
+                match self.store.update_bullet(
+                    self.current_date,
+                    &id,
+                    Some(buffer.trim().to_string()),
+                    None,
+                ) {
+                    Ok(_) => {
+                        self.status_message = Some("Updated".to_string());
+                        self.mode = ViewMode::DailyLog;
+                        self.reload_bullets();
+                    }
+                    Err(e) => self.status_message = Some(format!("Error: {e}")),
+                }
+            }
+        }
+    }
+
     // -- Review mode --
 
     fn enter_review_mode(&mut self) {
@@ -480,6 +646,7 @@ impl App {
     fn render(&self, frame: &mut ratatui::Frame) {
         match &self.mode {
             ViewMode::DailyLog => self.render_daily_log(frame),
+            ViewMode::Input(_) => self.render_input(frame),
             ViewMode::Review { .. } => self.render_review(frame),
             ViewMode::OpenTasks { .. } => self.render_open_tasks(frame),
             ViewMode::MigrationHistory { .. } => self.render_migration_history(frame),
@@ -502,6 +669,59 @@ impl App {
             chunks[2],
             " q:quit  j/k:nav  [/]:day  d:done  x:cancel  m:migrate  u:unmigrate  b:backlog  r:review  o:open  h:history",
         );
+    }
+
+    fn render_input(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ])
+        .split(area);
+
+        // Render the daily log behind the input
+        self.render_header(frame, chunks[0]);
+        self.render_bullet_list(frame, chunks[1]);
+
+        // Input area at the bottom
+        let state = match &self.mode {
+            ViewMode::Input(s) => s,
+            _ => return,
+        };
+
+        let (prompt_text, hint) = match &state.purpose {
+            InputPurpose::AddChooseType => (
+                "Add bullet — choose type: [t]ask  [e]vent  [n]ote".to_string(),
+                "Esc: cancel",
+            ),
+            InputPurpose::AddText { bullet_type } => (
+                format!("New {} > {}▏", bullet_type.display_name(), state.buffer),
+                "Enter: add  Esc: cancel",
+            ),
+            InputPurpose::EditText { .. } => (
+                format!("Edit > {}▏", state.buffer),
+                "Enter: save  Esc: cancel",
+            ),
+        };
+
+        let input_block = Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(self.theme.accent));
+
+        let input_lines = vec![
+            Line::from(Span::styled(
+                format!("  {prompt_text}"),
+                Style::default().fg(self.theme.foreground),
+            )),
+            Line::from(Span::styled(
+                format!("  {hint}"),
+                Style::default().fg(self.theme.muted),
+            )),
+        ];
+
+        let input_paragraph = Paragraph::new(input_lines).block(input_block);
+        frame.render_widget(input_paragraph, chunks[2]);
     }
 
     fn render_review(&self, frame: &mut ratatui::Frame) {
