@@ -32,7 +32,13 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Command::Serve) => {
-            eprintln!("bulletd MCP server — not yet implemented");
+            let config = load_config()?;
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                if let Err(e) = bulletd_mcp::run_server(&config).await {
+                    eprintln!("MCP server error: {e}");
+                }
+            });
         }
         Some(Command::Init) => {
             init::run_init()?;

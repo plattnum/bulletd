@@ -9,8 +9,10 @@ path = "src/main.rs"
 
 [dependencies]
 bulletd-core = { workspace = true }
+bulletd-mcp = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
+tokio = { workspace = true }
 color-eyre = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
