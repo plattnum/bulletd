@@ -178,6 +178,42 @@ impl Store {
         self.set_task_status(date, id, BulletStatus::Cancelled)
     }
 
+    /// Delete a bullet from a day's log. Removes it entirely.
+    pub fn delete_bullet(&self, date: NaiveDate, id: &str) -> crate::error::Result<()> {
+        let mut log = self.load_daily_log(date)?;
+        let len_before = log.bullets.len();
+        log.bullets.retain(|b| b.id != id);
+        if log.bullets.len() == len_before {
+            return Err(Error::BulletNotFound {
+                location: date.to_string(),
+                id: id.to_string(),
+            });
+        }
+        self.save_daily_log(&log)?;
+        Ok(())
+    }
+
+    /// Move a bullet up or down in the list. `delta` is -1 for up, +1 for down.
+    pub fn move_bullet(&self, date: NaiveDate, id: &str, delta: i32) -> crate::error::Result<()> {
+        let mut log = self.load_daily_log(date)?;
+        let pos =
+            log.bullets
+                .iter()
+                .position(|b| b.id == id)
+                .ok_or_else(|| Error::BulletNotFound {
+                    location: date.to_string(),
+                    id: id.to_string(),
+                })?;
+
+        let new_pos = (pos as i32 + delta).clamp(0, log.bullets.len() as i32 - 1) as usize;
+        if new_pos != pos {
+            let bullet = log.bullets.remove(pos);
+            log.bullets.insert(new_pos, bullet);
+            self.save_daily_log(&log)?;
+        }
+        Ok(())
+    }
+
     /// Internal: set a task's status, validating it's a task in Open state.
     fn set_task_status(
         &self,
@@ -196,19 +232,18 @@ impl Store {
                     id: id.to_string(),
                 })?;
 
-        if !bullet.is_task() {
+        // Notes are immutable
+        if bullet.status == BulletStatus::Note {
             return Err(Error::NotATask {
                 date: date.to_string(),
                 id: id.to_string(),
-                bullet_type: bullet.bullet_type().display_name().to_string(),
+                bullet_type: "note".to_string(),
             });
         }
 
-        if bullet.status != BulletStatus::Open {
-            return Err(Error::InvalidStatusTransition {
-                from: bullet.status.display_name().to_string(),
-                to: new_status.display_name().to_string(),
-            });
+        // Already in the target status — no-op
+        if bullet.status == new_status {
+            return Ok(bullet.clone());
         }
 
         bullet.status = new_status;
@@ -241,14 +276,17 @@ impl Store {
                 id: source_id.to_string(),
             })?;
 
-        if !source_bullet.is_task() {
+        if !source_bullet.is_actionable() {
             return Err(Error::NotATask {
                 date: source_date.to_string(),
                 id: source_id.to_string(),
                 bullet_type: source_bullet.bullet_type().display_name().to_string(),
             });
         }
-        if source_bullet.status != BulletStatus::Open {
+        if !matches!(
+            source_bullet.status,
+            BulletStatus::Open | BulletStatus::Event
+        ) {
             return Err(Error::InvalidStatusTransition {
                 from: source_bullet.status.display_name().to_string(),
                 to: "migrated".to_string(),
@@ -405,14 +443,17 @@ impl Store {
                 id: source_id.to_string(),
             })?;
 
-        if !source_bullet.is_task() {
+        if !source_bullet.is_actionable() {
             return Err(Error::NotATask {
                 date: source_date.to_string(),
                 id: source_id.to_string(),
                 bullet_type: source_bullet.bullet_type().display_name().to_string(),
             });
         }
-        if source_bullet.status != BulletStatus::Open {
+        if !matches!(
+            source_bullet.status,
+            BulletStatus::Open | BulletStatus::Event
+        ) {
             return Err(Error::InvalidStatusTransition {
                 from: source_bullet.status.display_name().to_string(),
                 to: "backlogged".to_string(),
@@ -731,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn update_immutable_event_fails() {
+    fn update_event_succeeds() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
@@ -739,7 +780,22 @@ mod tests {
             .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
             .unwrap();
 
-        let result = store.update_bullet(date, &event.id, Some("Changed".to_string()), None);
+        let updated = store
+            .update_bullet(date, &event.id, Some("Changed".to_string()), None)
+            .unwrap();
+        assert_eq!(updated.text, "Changed");
+    }
+
+    #[test]
+    fn update_note_fails() {
+        let (_dir, store) = test_store();
+        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+
+        let note = store
+            .add_bullet(BulletType::Note, "Info".to_string(), vec![], Some(date))
+            .unwrap();
+
+        let result = store.update_bullet(date, &note.id, Some("Changed".to_string()), None);
         assert!(matches!(result, Err(Error::ImmutableBullet { .. })));
     }
 
@@ -774,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_event_fails() {
+    fn complete_event_succeeds() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
@@ -782,12 +838,25 @@ mod tests {
             .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
             .unwrap();
 
-        let result = store.complete_task(date, &event.id);
+        let completed = store.complete_task(date, &event.id).unwrap();
+        assert_eq!(completed.status, BulletStatus::Done);
+    }
+
+    #[test]
+    fn complete_note_fails() {
+        let (_dir, store) = test_store();
+        let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+
+        let note = store
+            .add_bullet(BulletType::Note, "Info".to_string(), vec![], Some(date))
+            .unwrap();
+
+        let result = store.complete_task(date, &note.id);
         assert!(matches!(result, Err(Error::NotATask { .. })));
     }
 
     #[test]
-    fn complete_already_done_fails() {
+    fn complete_already_done_is_noop() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
@@ -797,13 +866,13 @@ mod tests {
 
         store.complete_task(date, &bullet.id).unwrap();
 
-        // Try to complete again
-        let result = store.complete_task(date, &bullet.id);
-        assert!(matches!(result, Err(Error::InvalidStatusTransition { .. })));
+        // Completing again is a no-op — returns Ok with the same status
+        let result = store.complete_task(date, &bullet.id).unwrap();
+        assert_eq!(result.status, BulletStatus::Done);
     }
 
     #[test]
-    fn cancel_already_cancelled_fails() {
+    fn cancel_already_cancelled_is_noop() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
@@ -813,8 +882,9 @@ mod tests {
 
         store.cancel_task(date, &bullet.id).unwrap();
 
-        let result = store.cancel_task(date, &bullet.id);
-        assert!(matches!(result, Err(Error::InvalidStatusTransition { .. })));
+        // Cancelling again is a no-op — returns Ok with same status
+        let result = store.cancel_task(date, &bullet.id).unwrap();
+        assert_eq!(result.status, BulletStatus::Cancelled);
     }
 
     // -- Migrate tests --
@@ -906,16 +976,18 @@ mod tests {
     }
 
     #[test]
-    fn migrate_event_fails() {
+    fn migrate_event_succeeds() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
+        let target = NaiveDate::from_ymd_opt(2026, 4, 11).unwrap();
 
         let event = store
             .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
             .unwrap();
 
-        let result = store.migrate_task(date, &event.id, None);
-        assert!(matches!(result, Err(Error::NotATask { .. })));
+        let (source, target_bullet) = store.migrate_task(date, &event.id, Some(target)).unwrap();
+        assert_eq!(source.status, BulletStatus::Migrated);
+        assert_eq!(target_bullet.status, BulletStatus::Open);
     }
 
     #[test]
@@ -1055,7 +1127,7 @@ mod tests {
     }
 
     #[test]
-    fn backlog_event_fails() {
+    fn backlog_event_succeeds() {
         let (_dir, store) = test_store();
         let date = NaiveDate::from_ymd_opt(2026, 4, 10).unwrap();
 
@@ -1063,8 +1135,9 @@ mod tests {
             .add_bullet(BulletType::Event, "Meeting".to_string(), vec![], Some(date))
             .unwrap();
 
-        let result = store.backlog_task(date, &event.id);
-        assert!(matches!(result, Err(Error::NotATask { .. })));
+        let (source, backlog_bullet) = store.backlog_task(date, &event.id).unwrap();
+        assert_eq!(source.status, BulletStatus::Backlogged);
+        assert_eq!(backlog_bullet.text, "Meeting");
     }
 
     // -- Query tests --

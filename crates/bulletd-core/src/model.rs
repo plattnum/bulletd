@@ -54,16 +54,15 @@ impl BulletStatus {
     }
 
     /// Whether this status represents a task (as opposed to an event or note).
-    pub fn is_task(&self) -> bool {
-        matches!(
-            self,
-            Self::Open | Self::Done | Self::Migrated | Self::Cancelled | Self::Backlogged
-        )
+    /// Whether this is an actionable bullet (task or event). Both can be completed,
+    /// cancelled, migrated, etc. Notes are the only non-actionable type.
+    pub fn is_actionable(&self) -> bool {
+        !matches!(self, Self::Note)
     }
 
-    /// Whether this bullet is immutable (events and notes cannot change status).
+    /// Whether this bullet is immutable (only notes cannot change status).
     pub fn is_immutable(&self) -> bool {
-        matches!(self, Self::Event | Self::Note)
+        matches!(self, Self::Note)
     }
 
     /// Display name for error messages.
@@ -165,9 +164,9 @@ impl Bullet {
         BulletType::from_status(self.status)
     }
 
-    /// Whether this bullet is a task.
-    pub fn is_task(&self) -> bool {
-        self.status.is_task()
+    /// Whether this bullet is actionable (task or event — not a note).
+    pub fn is_actionable(&self) -> bool {
+        self.status.is_actionable()
     }
 }
 
@@ -254,19 +253,19 @@ mod tests {
     }
 
     #[test]
-    fn status_is_task() {
-        assert!(BulletStatus::Open.is_task());
-        assert!(BulletStatus::Done.is_task());
-        assert!(BulletStatus::Migrated.is_task());
-        assert!(BulletStatus::Cancelled.is_task());
-        assert!(BulletStatus::Backlogged.is_task());
-        assert!(!BulletStatus::Event.is_task());
-        assert!(!BulletStatus::Note.is_task());
+    fn status_is_actionable() {
+        assert!(BulletStatus::Open.is_actionable());
+        assert!(BulletStatus::Done.is_actionable());
+        assert!(BulletStatus::Migrated.is_actionable());
+        assert!(BulletStatus::Cancelled.is_actionable());
+        assert!(BulletStatus::Backlogged.is_actionable());
+        assert!(BulletStatus::Event.is_actionable());
+        assert!(!BulletStatus::Note.is_actionable());
     }
 
     #[test]
     fn status_is_immutable() {
-        assert!(BulletStatus::Event.is_immutable());
+        assert!(!BulletStatus::Event.is_immutable());
         assert!(BulletStatus::Note.is_immutable());
         assert!(!BulletStatus::Open.is_immutable());
         assert!(!BulletStatus::Done.is_immutable());

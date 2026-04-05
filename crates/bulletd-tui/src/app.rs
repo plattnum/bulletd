@@ -23,6 +23,14 @@ use bulletd_core::ops::Store;
 
 use crate::theme::Theme;
 
+/// State for grab-and-move mode.
+struct GrabState {
+    /// The ID of the bullet being moved.
+    bullet_id: String,
+    /// Current position in the list.
+    position: usize,
+}
+
 /// Text input state for add/edit operations.
 struct InputState {
     /// The text buffer being edited.
@@ -38,6 +46,8 @@ enum InputPurpose {
     AddText { bullet_type: BulletType },
     /// Editing an existing bullet's text.
     EditText { bullet_id: String },
+    /// Adding a note to an existing bullet.
+    AddNote { bullet_id: String },
 }
 
 /// Which view is currently active.
@@ -46,6 +56,8 @@ enum ViewMode {
     DailyLog,
     /// Text input mode (overlays on daily log).
     Input(InputState),
+    /// Grab-and-move mode — reorder a bullet with arrows.
+    Grab(GrabState),
     /// Review mode — step through open tasks one at a time.
     Review {
         /// Open tasks to review (IDs captured at review start).
@@ -165,6 +177,7 @@ impl App {
         match &self.mode {
             ViewMode::DailyLog => self.handle_key_daily_log(key),
             ViewMode::Input(_) => self.handle_key_input(key),
+            ViewMode::Grab(_) => self.handle_key_grab(key),
             ViewMode::Review { .. } => self.handle_key_review(key),
             ViewMode::OpenTasks { .. } => self.handle_key_open_tasks(key),
             ViewMode::MigrationHistory { .. } => self.handle_key_migration_history(key),
@@ -172,6 +185,9 @@ impl App {
     }
 
     fn handle_key_daily_log(&mut self, key: KeyCode) {
+        // Clear status message on any key press so hints are visible again
+        self.status_message = None;
+
         match key {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('j') | KeyCode::Down => self.move_down(),
@@ -182,9 +198,12 @@ impl App {
             KeyCode::Char('e') => self.start_edit_bullet(),
             KeyCode::Char('d') => self.action_complete(),
             KeyCode::Char('x') => self.action_cancel(),
+            KeyCode::Char('D') | KeyCode::Delete => self.action_delete(),
+            KeyCode::Char('n') => self.start_add_note(),
             KeyCode::Char('m') => self.action_migrate(),
             KeyCode::Char('u') => self.action_unmigrate(),
             KeyCode::Char('b') => self.action_backlog(),
+            KeyCode::Char('g') => self.start_grab(),
             KeyCode::Char('r') => self.enter_review_mode(),
             KeyCode::Char('o') => self.enter_open_tasks(),
             KeyCode::Char('h') => self.enter_migration_history(),
@@ -347,7 +366,65 @@ impl App {
         }
     }
 
-    // -- Input mode (add/edit) --
+    // -- Grab-and-move mode --
+
+    fn start_grab(&mut self) {
+        if let Some(bullet) = self.bullets.get(self.selected) {
+            self.mode = ViewMode::Grab(GrabState {
+                bullet_id: bullet.id.clone(),
+                position: self.selected,
+            });
+            self.status_message = None;
+        }
+    }
+
+    fn handle_key_grab(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let ViewMode::Grab(ref mut state) = self.mode
+                    && state.position < self.bullets.len().saturating_sub(1)
+                {
+                    let id = state.bullet_id.clone();
+                    if self.store.move_bullet(self.current_date, &id, 1).is_ok() {
+                        state.position += 1;
+                        self.selected = state.position;
+                        self.reload_bullets();
+                    }
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let ViewMode::Grab(ref mut state) = self.mode
+                    && state.position > 0
+                {
+                    let id = state.bullet_id.clone();
+                    if self.store.move_bullet(self.current_date, &id, -1).is_ok() {
+                        state.position -= 1;
+                        self.selected = state.position;
+                        self.reload_bullets();
+                    }
+                }
+            }
+            KeyCode::Enter | KeyCode::Esc => {
+                self.mode = ViewMode::DailyLog;
+                self.status_message = Some("Released".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    fn action_delete(&mut self) {
+        if let Some(id) = self.selected_bullet_id().map(|s| s.to_string()) {
+            match self.store.delete_bullet(self.current_date, &id) {
+                Ok(()) => {
+                    self.status_message = Some("Deleted".to_string());
+                    self.reload_bullets();
+                }
+                Err(e) => self.status_message = Some(format!("Error: {e}")),
+            }
+        }
+    }
+
+    // -- Input mode (add/edit/notes) --
 
     fn start_add_bullet(&mut self) {
         self.mode = ViewMode::Input(InputState {
@@ -366,6 +443,18 @@ impl App {
             self.mode = ViewMode::Input(InputState {
                 buffer: bullet.text.clone(),
                 purpose: InputPurpose::EditText {
+                    bullet_id: bullet.id.clone(),
+                },
+            });
+            self.status_message = None;
+        }
+    }
+
+    fn start_add_note(&mut self) {
+        if let Some(bullet) = self.bullets.get(self.selected) {
+            self.mode = ViewMode::Input(InputState {
+                buffer: String::new(),
+                purpose: InputPurpose::AddNote {
                     bullet_id: bullet.id.clone(),
                 },
             });
@@ -486,6 +575,25 @@ impl App {
                         self.reload_bullets();
                     }
                     Err(e) => self.status_message = Some(format!("Error: {e}")),
+                }
+            }
+            InputPurpose::AddNote { bullet_id } => {
+                let id = bullet_id.clone();
+                // Load existing notes and append the new one
+                if let Some(bullet) = self.bullets.iter().find(|b| b.id == id) {
+                    let mut notes = bullet.notes.clone();
+                    notes.push(buffer.trim().to_string());
+                    match self
+                        .store
+                        .update_bullet(self.current_date, &id, None, Some(notes))
+                    {
+                        Ok(_) => {
+                            self.status_message = Some("Note added".to_string());
+                            self.mode = ViewMode::DailyLog;
+                            self.reload_bullets();
+                        }
+                        Err(e) => self.status_message = Some(format!("Error: {e}")),
+                    }
                 }
             }
         }
@@ -647,6 +755,7 @@ impl App {
         match &self.mode {
             ViewMode::DailyLog => self.render_daily_log(frame),
             ViewMode::Input(_) => self.render_input(frame),
+            ViewMode::Grab(_) => self.render_grab(frame),
             ViewMode::Review { .. } => self.render_review(frame),
             ViewMode::OpenTasks { .. } => self.render_open_tasks(frame),
             ViewMode::MigrationHistory { .. } => self.render_migration_history(frame),
@@ -667,7 +776,25 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " q:quit  j/k:nav  [/]:day  d:done  x:cancel  m:migrate  u:unmigrate  b:backlog  r:review  o:open  h:history",
+            " q:quit j/k:nav [/]:day a:add e:edit n:note d:done x:cancel D:delete m:migrate b:backlog g:grab r:review o:open",
+        );
+    }
+
+    fn render_grab(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+        self.render_header(frame, chunks[0]);
+        self.render_bullet_list(frame, chunks[1]);
+        self.render_status_bar(
+            frame,
+            chunks[2],
+            " GRAB MODE — j/k:move bullet  Enter/Esc:release",
         );
     }
 
@@ -702,6 +829,10 @@ impl App {
             InputPurpose::EditText { .. } => (
                 format!("Edit > {}▏", state.buffer),
                 "Enter: save  Esc: cancel",
+            ),
+            InputPurpose::AddNote { .. } => (
+                format!("Add note > {}▏", state.buffer),
+                "Enter: add note  Esc: cancel",
             ),
         };
 
