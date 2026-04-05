@@ -136,7 +136,7 @@ name = "bulletd-tui"
 version = "0.1.0"
 dependencies = [
  "bulletd-core",
- "bulletd-mcp",
+ "chrono",
  "clap",
  "color-eyre",
  "crossterm",

@@ -1,7 +1,11 @@
+mod app;
 mod init;
+mod theme;
 
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::Result;
+
+use bulletd_core::config::load_config;
 
 #[derive(Parser)]
 #[command(
@@ -34,7 +38,17 @@ fn main() -> Result<()> {
             init::run_init()?;
         }
         None => {
-            eprintln!("bulletd TUI — not yet implemented");
+            app::install_panic_handler();
+            let config = match load_config() {
+                Ok(c) => c,
+                Err(bulletd_core::Error::ConfigNotFound { .. }) => {
+                    eprintln!("No config found. Run `bulletd init` to set up bulletd.");
+                    return Ok(());
+                }
+                Err(e) => return Err(e.into()),
+            };
+            let mut tui_app = app::App::new(&config);
+            tui_app.run()?;
         }
     }
 
