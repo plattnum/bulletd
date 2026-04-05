@@ -1114,9 +1114,12 @@ impl App {
             return;
         }
 
+        let is_grab_mode = matches!(self.mode, ViewMode::Grab(_));
+
         let mut lines: Vec<(usize, Line)> = Vec::new();
         for (i, bullet) in self.bullets.iter().enumerate() {
             let is_selected = i == self.selected;
+            let is_grabbed = is_selected && is_grab_mode;
             let status_style = self.status_color(bullet.status);
             let text_style = if is_selected {
                 Style::default()
@@ -1125,25 +1128,40 @@ impl App {
             } else {
                 Style::default().fg(self.theme.foreground)
             };
-            let select_indicator = if is_selected { "▸ " } else { "  " };
+            let select_indicator = if is_grabbed {
+                "≡ "
+            } else if is_selected {
+                "▸ "
+            } else {
+                "  "
+            };
 
-            lines.push((
-                i,
-                Line::from(vec![
-                    Span::styled(select_indicator, Style::default().fg(self.theme.accent)),
-                    Span::styled(format!("{} ", bullet.status.as_emoji()), status_style),
-                    Span::styled(&bullet.text, text_style),
-                ]),
-            ));
+            // Full-width background highlight when grabbed
+            let line_bg = if is_grabbed {
+                Style::default().bg(self.theme.accent)
+            } else {
+                Style::default()
+            };
+
+            let mut main_line = Line::from(vec![
+                Span::styled(select_indicator, Style::default().fg(self.theme.accent)),
+                Span::styled(format!("{} ", bullet.status.as_emoji()), status_style),
+                Span::styled(&bullet.text, text_style),
+            ]);
+            if is_grabbed {
+                main_line = main_line.style(line_bg);
+            }
+            lines.push((i, main_line));
 
             for note in &bullet.notes {
-                lines.push((
-                    i,
-                    Line::from(vec![
-                        Span::raw("      "),
-                        Span::styled(note, Style::default().fg(self.theme.muted)),
-                    ]),
-                ));
+                let mut note_line = Line::from(vec![
+                    Span::raw("      "),
+                    Span::styled(note, Style::default().fg(self.theme.muted)),
+                ]);
+                if is_grabbed {
+                    note_line = note_line.style(line_bg);
+                }
+                lines.push((i, note_line));
             }
         }
 
