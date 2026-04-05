@@ -23,18 +23,45 @@ use bulletd_core::ops::Store;
 
 use crate::theme::Theme;
 
+/// Which view is currently active.
+enum ViewMode {
+    /// Daily log — the default view.
+    DailyLog,
+    /// Review mode — step through open tasks one at a time.
+    Review {
+        /// Open tasks to review (IDs captured at review start).
+        task_ids: Vec<String>,
+        /// Current position in the review list.
+        current: usize,
+        /// Total count at start (for progress display).
+        total: usize,
+    },
+    /// Open tasks across all days.
+    OpenTasks {
+        /// (date, bullet) pairs.
+        tasks: Vec<(NaiveDate, Bullet)>,
+        selected: usize,
+    },
+    /// Migration history for a specific bullet.
+    MigrationHistory {
+        chain: Vec<(NaiveDate, String, BulletStatus)>,
+    },
+}
+
 /// The main TUI application state.
 pub struct App {
     pub(crate) store: Store,
     theme: Theme,
+    config: Config,
     should_quit: bool,
-    /// The date currently being viewed.
+    mode: ViewMode,
+    /// The date currently being viewed (daily log).
     current_date: NaiveDate,
     /// Bullets loaded for the current date.
     bullets: Vec<Bullet>,
-    /// Currently selected bullet index.
+    /// Currently selected bullet index in daily log.
     selected: usize,
-    /// Status message shown at the bottom (e.g., error or confirmation).
+    /// Status message shown at the bottom.
     status_message: Option<String>,
 }
 
@@ -48,7 +75,9 @@ impl App {
         let mut app = Self {
             store,
             theme,
+            config: config.clone(),
             should_quit: false,
+            mode: ViewMode::DailyLog,
             current_date,
             bullets: vec![],
             selected: 0,
@@ -58,13 +87,11 @@ impl App {
         app
     }
 
-    /// Reload bullets from disk for the current date.
     fn reload_bullets(&mut self) {
         match self.store.list_bullets(self.current_date, None, None) {
             Ok(bullets) => {
                 self.bullets = bullets;
                 self.status_message = None;
-                // Clamp selection
                 if self.selected >= self.bullets.len() && !self.bullets.is_empty() {
                     self.selected = self.bullets.len() - 1;
                 }
@@ -76,18 +103,15 @@ impl App {
         }
     }
 
-    /// Navigate to a different date.
     fn go_to_date(&mut self, date: NaiveDate) {
         self.current_date = date;
         self.selected = 0;
         self.reload_bullets();
     }
 
-    /// Run the TUI event loop.
     pub fn run(&mut self) -> Result<()> {
         enable_raw_mode()?;
 
-        // From here on, always restore the terminal even on error
         let result = (|| -> Result<()> {
             let mut stdout = io::stdout();
             execute!(stdout, EnterAlternateScreen)?;
@@ -116,26 +140,95 @@ impl App {
         Ok(())
     }
 
+    // -- Key handling --
+
     fn handle_key(&mut self, key: KeyCode) {
+        match &self.mode {
+            ViewMode::DailyLog => self.handle_key_daily_log(key),
+            ViewMode::Review { .. } => self.handle_key_review(key),
+            ViewMode::OpenTasks { .. } => self.handle_key_open_tasks(key),
+            ViewMode::MigrationHistory { .. } => self.handle_key_migration_history(key),
+        }
+    }
+
+    fn handle_key_daily_log(&mut self, key: KeyCode) {
         match key {
             KeyCode::Char('q') => self.should_quit = true,
-
-            // Navigation
             KeyCode::Char('j') | KeyCode::Down => self.move_down(),
             KeyCode::Char('k') | KeyCode::Up => self.move_up(),
             KeyCode::Char('[') => self.prev_day(),
             KeyCode::Char(']') => self.next_day(),
-
-            // Actions on selected bullet
             KeyCode::Char('d') => self.action_complete(),
             KeyCode::Char('x') => self.action_cancel(),
             KeyCode::Char('m') => self.action_migrate(),
             KeyCode::Char('u') => self.action_unmigrate(),
             KeyCode::Char('b') => self.action_backlog(),
-
+            KeyCode::Char('r') => self.enter_review_mode(),
+            KeyCode::Char('o') => self.enter_open_tasks(),
+            KeyCode::Char('h') => self.enter_migration_history(),
             _ => {}
         }
     }
+
+    fn handle_key_review(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Char('d') => self.review_action(BulletStatus::Done),
+            KeyCode::Char('x') => self.review_action(BulletStatus::Cancelled),
+            KeyCode::Char('m') => self.review_migrate(),
+            KeyCode::Char('b') => self.review_backlog(),
+            KeyCode::Esc => {
+                self.mode = ViewMode::DailyLog;
+                self.reload_bullets();
+                self.status_message = Some("Review cancelled".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_open_tasks(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.mode = ViewMode::DailyLog;
+                self.reload_bullets();
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let ViewMode::OpenTasks { tasks, selected } = &mut self.mode
+                    && *selected < tasks.len().saturating_sub(1)
+                {
+                    *selected += 1;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let ViewMode::OpenTasks { selected, .. } = &mut self.mode
+                    && *selected > 0
+                {
+                    *selected -= 1;
+                }
+            }
+            KeyCode::Enter => {
+                if let ViewMode::OpenTasks { tasks, selected } = &self.mode
+                    && let Some((date, _)) = tasks.get(*selected)
+                {
+                    let date = *date;
+                    self.mode = ViewMode::DailyLog;
+                    self.go_to_date(date);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_key_migration_history(&mut self, key: KeyCode) {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.mode = ViewMode::DailyLog;
+                self.reload_bullets();
+            }
+            _ => {}
+        }
+    }
+
+    // -- Navigation --
 
     fn move_down(&mut self) {
         if !self.bullets.is_empty() && self.selected < self.bullets.len() - 1 {
@@ -161,7 +254,7 @@ impl App {
         }
     }
 
-    // -- Actions --
+    // -- Daily log actions --
 
     fn selected_bullet_id(&self) -> Option<&str> {
         self.bullets.get(self.selected).map(|b| b.id.as_str())
@@ -232,12 +325,169 @@ impl App {
         }
     }
 
+    // -- Review mode --
+
+    fn enter_review_mode(&mut self) {
+        match self.store.daily_review(self.current_date) {
+            Ok(open_tasks) => {
+                if open_tasks.is_empty() {
+                    self.status_message = Some("No open tasks to review for this day".to_string());
+                    return;
+                }
+                let total = open_tasks.len();
+                let task_ids: Vec<String> = open_tasks.iter().map(|b| b.id.clone()).collect();
+                self.mode = ViewMode::Review {
+                    task_ids,
+                    current: 0,
+                    total,
+                };
+            }
+            Err(e) => self.status_message = Some(format!("Error: {e}")),
+        }
+    }
+
+    fn review_action(&mut self, status: BulletStatus) {
+        let (id, current, total) = match &self.mode {
+            ViewMode::Review {
+                task_ids,
+                current,
+                total,
+            } => {
+                if let Some(id) = task_ids.get(*current) {
+                    (id.clone(), *current, *total)
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+
+        let result = match status {
+            BulletStatus::Done => self.store.complete_task(self.current_date, &id),
+            BulletStatus::Cancelled => self.store.cancel_task(self.current_date, &id),
+            _ => return,
+        };
+
+        match result {
+            Ok(_) => self.advance_review(current, total),
+            Err(e) => self.status_message = Some(format!("Error: {e}")),
+        }
+    }
+
+    fn review_migrate(&mut self) {
+        let (id, current, total) = match &self.mode {
+            ViewMode::Review {
+                task_ids,
+                current,
+                total,
+            } => {
+                if let Some(id) = task_ids.get(*current) {
+                    (id.clone(), *current, *total)
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+
+        let target_date = self.current_date.succ_opt().unwrap_or(self.current_date);
+        match self
+            .store
+            .migrate_task(self.current_date, &id, Some(target_date))
+        {
+            Ok(_) => self.advance_review(current, total),
+            Err(e) => self.status_message = Some(format!("Error: {e}")),
+        }
+    }
+
+    fn review_backlog(&mut self) {
+        let (id, current, total) = match &self.mode {
+            ViewMode::Review {
+                task_ids,
+                current,
+                total,
+            } => {
+                if let Some(id) = task_ids.get(*current) {
+                    (id.clone(), *current, *total)
+                } else {
+                    return;
+                }
+            }
+            _ => return,
+        };
+
+        match self.store.backlog_task(self.current_date, &id) {
+            Ok(_) => self.advance_review(current, total),
+            Err(e) => self.status_message = Some(format!("Error: {e}")),
+        }
+    }
+
+    fn advance_review(&mut self, current: usize, total: usize) {
+        let next = current + 1;
+        if let ViewMode::Review {
+            current: ref mut c, ..
+        } = self.mode
+        {
+            if next >= total {
+                self.mode = ViewMode::DailyLog;
+                self.reload_bullets();
+                self.status_message = Some(format!("Review complete — {total} tasks resolved"));
+            } else {
+                *c = next;
+            }
+        }
+    }
+
+    // -- Open tasks view --
+
+    fn enter_open_tasks(&mut self) {
+        let lookback = self.config.general.lookback_days;
+        match self.store.list_open_tasks(lookback) {
+            Ok(tasks) => {
+                if tasks.is_empty() {
+                    self.status_message = Some("No open tasks found".to_string());
+                    return;
+                }
+                self.mode = ViewMode::OpenTasks { tasks, selected: 0 };
+            }
+            Err(e) => self.status_message = Some(format!("Error: {e}")),
+        }
+    }
+
+    // -- Migration history view --
+
+    fn enter_migration_history(&mut self) {
+        if let Some(bullet) = self.bullets.get(self.selected) {
+            if bullet.migrated_to.is_none() && bullet.migrated_from.is_none() {
+                self.status_message = Some("No migration history for this bullet".to_string());
+                return;
+            }
+            match self.store.migration_history(self.current_date, &bullet.id) {
+                Ok(chain) => {
+                    if chain.is_empty() {
+                        self.status_message = Some("No migration history found".to_string());
+                        return;
+                    }
+                    self.mode = ViewMode::MigrationHistory { chain };
+                }
+                Err(e) => self.status_message = Some(format!("Error: {e}")),
+            }
+        }
+    }
+
     // -- Rendering --
 
     fn render(&self, frame: &mut ratatui::Frame) {
-        let area = frame.area();
+        match &self.mode {
+            ViewMode::DailyLog => self.render_daily_log(frame),
+            ViewMode::Review { .. } => self.render_review(frame),
+            ViewMode::OpenTasks { .. } => self.render_open_tasks(frame),
+            ViewMode::MigrationHistory { .. } => self.render_migration_history(frame),
+        }
+    }
 
-        // Layout: header (3 lines) + bullet list (remaining) + status bar (1 line)
+    fn render_daily_log(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
         let chunks = Layout::vertical([
             Constraint::Length(3),
             Constraint::Min(1),
@@ -247,8 +497,230 @@ impl App {
 
         self.render_header(frame, chunks[0]);
         self.render_bullet_list(frame, chunks[1]);
-        self.render_status_bar(frame, chunks[2]);
+        self.render_status_bar(
+            frame,
+            chunks[2],
+            " q:quit  j/k:nav  [/]:day  d:done  x:cancel  m:migrate  u:unmigrate  b:backlog  r:review  o:open  h:history",
+        );
     }
+
+    fn render_review(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+        let (task_ids, current, total) = match &self.mode {
+            ViewMode::Review {
+                task_ids,
+                current,
+                total,
+            } => (task_ids, *current, *total),
+            _ => return,
+        };
+
+        // Header
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("Review — Task {} of {}", current + 1, total),
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {}", self.current_date),
+                Style::default().fg(self.theme.muted),
+            ),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(self.theme.muted)),
+        );
+        frame.render_widget(header, chunks[0]);
+
+        // Current task
+        if let Some(id) = task_ids.get(current) {
+            if let Some(bullet) = self.bullets.iter().find(|b| b.id == *id) {
+                let mut lines = vec![
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::styled("  ", Style::default()),
+                        Span::styled(
+                            format!("{} ", bullet.status.as_emoji()),
+                            self.status_color(bullet.status),
+                        ),
+                        Span::styled(
+                            &bullet.text,
+                            Style::default()
+                                .fg(self.theme.foreground)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]),
+                ];
+                for note in &bullet.notes {
+                    lines.push(Line::from(vec![
+                        Span::raw("      "),
+                        Span::styled(note, Style::default().fg(self.theme.muted)),
+                    ]));
+                }
+                let paragraph = Paragraph::new(lines);
+                frame.render_widget(paragraph, chunks[1]);
+            } else {
+                // Task may have been resolved already; reload and skip
+                let msg = Paragraph::new(Line::from(Span::styled(
+                    "  Task not found — it may have been resolved",
+                    Style::default().fg(self.theme.muted),
+                )));
+                frame.render_widget(msg, chunks[1]);
+            }
+        }
+
+        self.render_status_bar(
+            frame,
+            chunks[2],
+            " d:done  x:cancel  m:migrate  b:backlog  Esc:exit review",
+        );
+    }
+
+    fn render_open_tasks(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+        let (tasks, selected) = match &self.mode {
+            ViewMode::OpenTasks { tasks, selected } => (tasks, *selected),
+            _ => return,
+        };
+
+        // Header
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("Open Tasks — {} total", tasks.len()),
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(self.theme.muted)),
+        );
+        frame.render_widget(header, chunks[0]);
+
+        // Task list grouped by date
+        let mut lines: Vec<Line> = Vec::new();
+        let mut last_date: Option<NaiveDate> = None;
+        for (i, (date, bullet)) in tasks.iter().enumerate() {
+            if last_date != Some(*date) {
+                if last_date.is_some() {
+                    lines.push(Line::from(""));
+                }
+                lines.push(Line::from(Span::styled(
+                    format!("  {date}"),
+                    Style::default()
+                        .fg(self.theme.accent)
+                        .add_modifier(Modifier::UNDERLINED),
+                )));
+                last_date = Some(*date);
+            }
+            let is_selected = i == selected;
+            let indicator = if is_selected { "▸ " } else { "  " };
+            let text_style = if is_selected {
+                Style::default()
+                    .fg(self.theme.foreground)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(self.theme.foreground)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("    {indicator}"),
+                    Style::default().fg(self.theme.accent),
+                ),
+                Span::styled(
+                    format!("{} ", bullet.status.as_emoji()),
+                    self.status_color(bullet.status),
+                ),
+                Span::styled(&bullet.text, text_style),
+            ]));
+        }
+
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, chunks[1]);
+
+        self.render_status_bar(frame, chunks[2], " j/k:nav  Enter:go to day  Esc:back");
+    }
+
+    fn render_migration_history(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+        let chunks = Layout::vertical([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+        let chain = match &self.mode {
+            ViewMode::MigrationHistory { chain } => chain,
+            _ => return,
+        };
+
+        // Header
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("Migration History — {} steps", chain.len()),
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(self.theme.muted)),
+        );
+        frame.render_widget(header, chunks[0]);
+
+        // Chain display
+        let mut lines: Vec<Line> = vec![Line::from("")];
+        for (i, (date, id, status)) in chain.iter().enumerate() {
+            let arrow = if i < chain.len() - 1 { " →" } else { "" };
+            lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{} ", status.as_emoji()),
+                    self.status_color(*status),
+                ),
+                Span::styled(
+                    format!("{date}/{id}"),
+                    Style::default().fg(self.theme.foreground),
+                ),
+                Span::styled(
+                    format!("  ({}){arrow}", status.display_name()),
+                    Style::default().fg(self.theme.muted),
+                ),
+            ]));
+        }
+
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, chunks[1]);
+
+        self.render_status_bar(frame, chunks[2], " Esc:back");
+    }
+
+    // -- Shared rendering helpers --
 
     fn render_header(&self, frame: &mut ratatui::Frame, area: Rect) {
         let today = Local::now().date_naive();
@@ -291,8 +763,7 @@ impl App {
             return;
         }
 
-        // Build lines for all bullets (each bullet may take multiple lines due to notes)
-        let mut lines: Vec<(usize, Line)> = Vec::new(); // (bullet_index, line)
+        let mut lines: Vec<(usize, Line)> = Vec::new();
         for (i, bullet) in self.bullets.iter().enumerate() {
             let is_selected = i == self.selected;
             let status_style = self.status_color(bullet.status);
@@ -305,7 +776,6 @@ impl App {
             };
             let select_indicator = if is_selected { "▸ " } else { "  " };
 
-            // Main bullet line
             lines.push((
                 i,
                 Line::from(vec![
@@ -315,7 +785,6 @@ impl App {
                 ]),
             ));
 
-            // Note lines (indented)
             for note in &bullet.notes {
                 lines.push((
                     i,
@@ -327,7 +796,6 @@ impl App {
             }
         }
 
-        // Calculate scroll to keep selected bullet visible
         let visible_height = area.height as usize;
         let selected_first_line = lines
             .iter()
@@ -341,7 +809,6 @@ impl App {
         let paragraph = Paragraph::new(display_lines).scroll((scroll, 0));
         frame.render_widget(paragraph, area);
 
-        // Scrollbar
         if total_lines > visible_height {
             let mut scrollbar_state = ScrollbarState::new(total_lines).position(scroll as usize);
             frame.render_stateful_widget(
@@ -352,14 +819,11 @@ impl App {
         }
     }
 
-    fn render_status_bar(&self, frame: &mut ratatui::Frame, area: Rect) {
+    fn render_status_bar(&self, frame: &mut ratatui::Frame, area: Rect, default_hint: &str) {
         let content = if let Some(msg) = &self.status_message {
             Span::styled(format!(" {msg}"), Style::default().fg(self.theme.warning))
         } else {
-            Span::styled(
-                " q:quit  j/k:nav  [/]:day  d:done  x:cancel  m:migrate  u:unmigrate  b:backlog",
-                Style::default().fg(self.theme.muted),
-            )
+            Span::styled(default_hint, Style::default().fg(self.theme.muted))
         };
 
         let bar =
