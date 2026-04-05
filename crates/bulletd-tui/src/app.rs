@@ -46,6 +46,8 @@ enum InputPurpose {
     EditText { bullet_id: String },
     /// Adding a note to an existing bullet.
     AddNote { bullet_id: String },
+    /// Editing all notes on a bullet. Buffer uses | as separator between notes.
+    EditNotes { bullet_id: String },
 }
 
 /// Which view is currently active.
@@ -199,6 +201,7 @@ impl App {
             KeyCode::Char('x') => self.action_cancel(),
             KeyCode::Char('D') | KeyCode::Delete => self.action_delete(),
             KeyCode::Char('n') => self.start_add_note(),
+            KeyCode::Char('N') => self.start_edit_notes(),
             KeyCode::Char('m') => self.action_migrate(),
             KeyCode::Char('u') => self.action_unmigrate(),
             KeyCode::Char('b') => self.action_backlog(),
@@ -469,6 +472,24 @@ impl App {
         }
     }
 
+    fn start_edit_notes(&mut self) {
+        if let Some(bullet) = self.bullets.get(self.selected) {
+            if bullet.notes.is_empty() {
+                // No notes to edit — start adding instead
+                self.start_add_note();
+                return;
+            }
+            // Join notes with | for editing, user can add/remove/modify
+            self.mode = ViewMode::Input(InputState {
+                buffer: bullet.notes.join(" | "),
+                purpose: InputPurpose::EditNotes {
+                    bullet_id: bullet.id.clone(),
+                },
+            });
+            self.status_message = None;
+        }
+    }
+
     fn handle_key_input(&mut self, key: KeyCode) {
         // Text input mode
         match key {
@@ -532,6 +553,26 @@ impl App {
                 ) {
                     Ok(_) => {
                         self.status_message = Some("Updated".to_string());
+                        self.mode = ViewMode::DailyLog;
+                        self.reload_bullets();
+                    }
+                    Err(e) => self.status_message = Some(format!("Error: {e}")),
+                }
+            }
+            InputPurpose::EditNotes { bullet_id } => {
+                let id = bullet_id.clone();
+                // Split on | to get individual notes, filter empties
+                let notes: Vec<String> = buffer
+                    .split('|')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                match self
+                    .store
+                    .update_bullet(self.current_date, &id, None, Some(notes))
+                {
+                    Ok(_) => {
+                        self.status_message = Some("Notes updated".to_string());
                         self.mode = ViewMode::DailyLog;
                         self.reload_bullets();
                     }
@@ -790,6 +831,10 @@ impl App {
             InputPurpose::AddNote { .. } => (
                 format!("Add note > {}▏", state.buffer),
                 "Enter: add note  Esc: cancel",
+            ),
+            InputPurpose::EditNotes { .. } => (
+                format!("Edit notes (separate with |) > {}▏", state.buffer),
+                "Enter: save  Esc: cancel  Clear all to remove notes",
             ),
         };
 
@@ -1112,8 +1157,13 @@ impl App {
 
             for note in &bullet.notes {
                 let mut note_line = Line::from(vec![
-                    Span::raw("      "),
-                    Span::styled(note, Style::default().fg(self.theme.muted)),
+                    Span::styled("     ↳ ", Style::default().fg(self.theme.muted)),
+                    Span::styled(
+                        note,
+                        Style::default()
+                            .fg(self.theme.muted)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
                 ]);
                 if is_grabbed {
                     note_line = note_line.style(line_bg);
