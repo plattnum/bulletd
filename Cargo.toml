@@ -1,0 +1,33 @@
+[workspace]
+members = ["crates/bulletd-core", "crates/bulletd-tui", "crates/bulletd-mcp"]
+resolver = "2"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Error handling
+thiserror = "2"
+color-eyre = "0.6"
+
+# Date handling
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+# ID generation
+rand = "0.9"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# TUI
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Internal crates
+bulletd-core = { path = "crates/bulletd-core" }
+bulletd-mcp = { path = "crates/bulletd-mcp" }
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

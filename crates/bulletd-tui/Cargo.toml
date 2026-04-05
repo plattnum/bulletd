@@ -1,0 +1,16 @@
+[package]
+name = "bulletd-tui"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "bulletd"
+path = "src/main.rs"
+
+[dependencies]
+bulletd-core = { workspace = true }
+bulletd-mcp = { workspace = true }
+clap = { workspace = true }
+color-eyre = { workspace = true }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
