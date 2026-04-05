@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::error::Error;
-use crate::model::{BacklogLog, Bullet, DailyLog, MigrationRef, MigrationTarget};
+use crate::model::{BacklogLog, Bullet, DailyLog, MigrationFrom, MigrationTarget, MigrationTo};
 
 const FILE_HEADER: &str = r#"<!--
   ⚠️ bulletd managed file — do not hand edit
@@ -136,7 +136,7 @@ fn write_row(output: &mut String, bullet: &Bullet) {
     let status = bullet.status.as_emoji();
     let text = escape_pipe(&bullet.text);
     let notes = format_notes(&bullet.notes);
-    let migration = format_migration(&bullet.migration);
+    let migration = format_migration(&bullet.migrated_to, &bullet.migrated_from);
     let id = &bullet.id;
 
     let _ = writeln!(
@@ -161,26 +161,32 @@ fn format_notes(notes: &[String]) -> String {
         .join("<br>")
 }
 
-fn format_migration(migration: &Option<MigrationRef>) -> String {
-    match migration {
-        None => String::new(),
-        Some(MigrationRef::To {
+fn format_migration(
+    migrated_to: &Option<MigrationTo>,
+    migrated_from: &Option<MigrationFrom>,
+) -> String {
+    let to_str = match migrated_to {
+        None => None,
+        Some(MigrationTo {
             target_date,
             target_id,
         }) => match target_date {
-            MigrationTarget::Date(date) => {
-                format!("[to {date}/{target_id}](./{date}.md)")
-            }
-            MigrationTarget::Backlog => {
-                format!("[to backlog/{target_id}](./backlog.md)")
-            }
+            MigrationTarget::Date(date) => Some(format!("[to {date}/{target_id}](./{date}.md)")),
+            MigrationTarget::Backlog => Some(format!("[to backlog/{target_id}](./backlog.md)")),
         },
-        Some(MigrationRef::From {
-            source_date,
-            source_id,
-        }) => {
-            format!("[from {source_date}/{source_id}](./{source_date}.md)")
-        }
+    };
+
+    let from_str = migrated_from.as_ref().map(
+        |MigrationFrom {
+             source_date,
+             source_id,
+         }| { format!("[from {source_date}/{source_id}](./{source_date}.md)") },
+    );
+
+    match (to_str, from_str) {
+        (None, None) => String::new(),
+        (Some(s), None) | (None, Some(s)) => s,
+        (Some(t), Some(f)) => format!("{t}<br>{f}"),
     }
 }
 
@@ -275,41 +281,41 @@ mod tests {
 
     #[test]
     fn format_migration_none() {
-        assert_eq!(format_migration(&None), "");
+        assert_eq!(format_migration(&None, &None), "");
     }
 
     #[test]
     fn format_migration_to_date() {
-        let mig = Some(MigrationRef::To {
+        let mig_to = Some(MigrationTo {
             target_date: MigrationTarget::Date(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap()),
             target_id: "d8f2a1b5".to_string(),
         });
         assert_eq!(
-            format_migration(&mig),
+            format_migration(&mig_to, &None),
             "[to 2026-04-06/d8f2a1b5](./2026-04-06.md)"
         );
     }
 
     #[test]
     fn format_migration_to_backlog() {
-        let mig = Some(MigrationRef::To {
+        let mig_to = Some(MigrationTo {
             target_date: MigrationTarget::Backlog,
             target_id: "a3c7e9d1".to_string(),
         });
         assert_eq!(
-            format_migration(&mig),
+            format_migration(&mig_to, &None),
             "[to backlog/a3c7e9d1](./backlog.md)"
         );
     }
 
     #[test]
     fn format_migration_from() {
-        let mig = Some(MigrationRef::From {
+        let mig_from = Some(MigrationFrom {
             source_date: NaiveDate::from_ymd_opt(2026, 4, 5).unwrap(),
             source_id: "c5a1d9e7".to_string(),
         });
         assert_eq!(
-            format_migration(&mig),
+            format_migration(&None, &mig_from),
             "[from 2026-04-05/c5a1d9e7](./2026-04-05.md)"
         );
     }
@@ -326,7 +332,8 @@ mod tests {
                 status: BulletStatus::Open,
                 text: "Test bullet".to_string(),
                 notes: vec![],
-                migration: None,
+                migrated_to: None,
+                migrated_from: None,
             }],
         };
 
@@ -367,7 +374,8 @@ mod tests {
                 status: BulletStatus::Note,
                 text: "Fix Foo | Bar".to_string(),
                 notes: vec!["Note with | pipe".to_string()],
-                migration: None,
+                migrated_to: None,
+                migrated_from: None,
             }],
         };
         let serialized = serialize_daily_log(&log);

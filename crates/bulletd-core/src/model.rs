@@ -119,25 +119,20 @@ impl BulletType {
     }
 }
 
-/// A reference to a related bullet in another file, used for migration traceability.
-///
-/// The `target_id`/`source_id` fields are expected to be valid 8-char lowercase hex IDs.
-/// The parser validates these during construction; direct struct construction should
-/// use `crate::id::validate_id` to enforce the invariant.
+/// A "migrated to" reference — where this bullet was sent.
+/// Stored as `[to YYYY-MM-DD/ID](./YYYY-MM-DD.md)` or `[to backlog/ID](./backlog.md)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MigrationRef {
-    /// This bullet was migrated TO the referenced location.
-    /// Stored as `[to YYYY-MM-DD/ID](./YYYY-MM-DD.md)` or `[to backlog/ID](./backlog.md)`.
-    To {
-        target_date: MigrationTarget,
-        target_id: String,
-    },
-    /// This bullet was migrated FROM the referenced location.
-    /// Stored as `[from YYYY-MM-DD/ID](./YYYY-MM-DD.md)`.
-    From {
-        source_date: NaiveDate,
-        source_id: String,
-    },
+pub struct MigrationTo {
+    pub target_date: MigrationTarget,
+    pub target_id: String,
+}
+
+/// A "migrated from" reference — where this bullet came from.
+/// Stored as `[from YYYY-MM-DD/ID](./YYYY-MM-DD.md)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationFrom {
+    pub source_date: NaiveDate,
+    pub source_id: String,
 }
 
 /// The target of a migration — either a specific date or the backlog.
@@ -158,8 +153,10 @@ pub struct Bullet {
     pub text: String,
     /// Optional notes providing additional context.
     pub notes: Vec<String>,
-    /// Migration traceability link, if any.
-    pub migration: Option<MigrationRef>,
+    /// Where this bullet was migrated/backlogged to, if any.
+    pub migrated_to: Option<MigrationTo>,
+    /// Where this bullet was migrated from, if any.
+    pub migrated_from: Option<MigrationFrom>,
 }
 
 impl Bullet {

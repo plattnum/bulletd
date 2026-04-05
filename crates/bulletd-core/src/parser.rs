@@ -2,7 +2,9 @@ use chrono::NaiveDate;
 
 use crate::error::Error;
 use crate::id::validate_id;
-use crate::model::{BacklogLog, Bullet, BulletStatus, DailyLog, MigrationRef, MigrationTarget};
+use crate::model::{
+    BacklogLog, Bullet, BulletStatus, DailyLog, MigrationFrom, MigrationTarget, MigrationTo,
+};
 
 /// Result of parsing a bulletd markdown file.
 /// The heading can be either a date (daily log) or "Backlog".
@@ -249,8 +251,8 @@ fn parse_row(cols: &[String], line_num: usize) -> crate::error::Result<Bullet> {
     // Parse notes: split on <br> variants
     let notes = parse_notes(notes_str);
 
-    // Parse migration link
-    let migration = parse_migration(migration_str, line_num)?;
+    // Parse migration links
+    let (migrated_to, migrated_from) = parse_migration(migration_str, line_num)?;
 
     // Validate and extract ID
     let id = id_str.trim().to_string();
@@ -270,7 +272,8 @@ fn parse_row(cols: &[String], line_num: usize) -> crate::error::Result<Bullet> {
         status,
         text: text.to_string(),
         notes,
-        migration,
+        migrated_to,
+        migrated_from,
     })
 }
 
@@ -321,51 +324,60 @@ fn split_on_br(s: &str) -> Vec<&str> {
     result
 }
 
-/// Parse a migration link from the Migration column.
+/// Parse migration links from the Migration column.
 ///
-/// Expected formats:
+/// The cell may contain one or both of:
 /// - `[to 2026-04-06/d8f2a1b5](./2026-04-06.md)`
-/// - `[to backlog/a3c7e9d1](./backlog.md)`
 /// - `[from 2026-04-05/c5a1d9e7](./2026-04-05.md)`
+///
+/// Multiple links are separated by `<br>`.
 fn parse_migration(
     migration_str: &str,
     line_num: usize,
-) -> crate::error::Result<Option<MigrationRef>> {
+) -> crate::error::Result<(Option<MigrationTo>, Option<MigrationFrom>)> {
     let trimmed = migration_str.trim();
     if trimmed.is_empty() {
-        return Ok(None);
+        return Ok((None, None));
     }
 
-    // Extract the link text from [text](url) format
-    // Use rfind to find the last ]( in case the text itself contains ](
-    let without_bracket = trimmed
-        .strip_prefix('[')
-        .ok_or_else(|| Error::InvalidMigrationLink {
-            value: trimmed.to_string(),
-        })?;
-    let close_pos = without_bracket
-        .find("](")
-        .ok_or_else(|| Error::InvalidMigrationLink {
-            value: trimmed.to_string(),
-        })?;
-    let link_text = &without_bracket[..close_pos];
+    let mut migrated_to = None;
+    let mut migrated_from = None;
 
-    // Parse direction and reference: "to DATE/ID" or "from DATE/ID"
-    if let Some(rest) = link_text.strip_prefix("to ") {
-        parse_migration_to(rest, line_num)
-    } else if let Some(rest) = link_text.strip_prefix("from ") {
-        parse_migration_from(rest, line_num)
-    } else {
-        Err(Error::InvalidMigrationLink {
-            value: trimmed.to_string(),
-        })
+    // Split on <br> to handle cells with both to and from links
+    let parts = split_on_br(trimmed);
+    for part in parts {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        // Extract the link text from [text](url) format
+        let without_bracket =
+            part.strip_prefix('[')
+                .ok_or_else(|| Error::InvalidMigrationLink {
+                    value: part.to_string(),
+                })?;
+        let close_pos = without_bracket
+            .find("](")
+            .ok_or_else(|| Error::InvalidMigrationLink {
+                value: part.to_string(),
+            })?;
+        let link_text = &without_bracket[..close_pos];
+
+        if let Some(rest) = link_text.strip_prefix("to ") {
+            migrated_to = Some(parse_migration_to(rest, line_num)?);
+        } else if let Some(rest) = link_text.strip_prefix("from ") {
+            migrated_from = Some(parse_migration_from(rest, line_num)?);
+        } else {
+            return Err(Error::InvalidMigrationLink {
+                value: part.to_string(),
+            });
+        }
     }
+
+    Ok((migrated_to, migrated_from))
 }
 
-fn parse_migration_to(
-    reference: &str,
-    line_num: usize,
-) -> crate::error::Result<Option<MigrationRef>> {
+fn parse_migration_to(reference: &str, line_num: usize) -> crate::error::Result<MigrationTo> {
     let (target_str, id) = split_migration_ref(reference, line_num)?;
 
     let target_date = if target_str == "backlog" {
@@ -378,26 +390,23 @@ fn parse_migration_to(
         MigrationTarget::Date(date)
     };
 
-    Ok(Some(MigrationRef::To {
+    Ok(MigrationTo {
         target_date,
         target_id: id.to_string(),
-    }))
+    })
 }
 
-fn parse_migration_from(
-    reference: &str,
-    line_num: usize,
-) -> crate::error::Result<Option<MigrationRef>> {
+fn parse_migration_from(reference: &str, line_num: usize) -> crate::error::Result<MigrationFrom> {
     let (date_str, id) = split_migration_ref(reference, line_num)?;
 
     let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d").map_err(|_| Error::InvalidDate {
         value: date_str.to_string(),
     })?;
 
-    Ok(Some(MigrationRef::From {
+    Ok(MigrationFrom {
         source_date: date,
         source_id: id.to_string(),
-    }))
+    })
 }
 
 fn split_migration_ref(reference: &str, line_num: usize) -> crate::error::Result<(&str, &str)> {
@@ -438,7 +447,7 @@ mod tests {
         assert_eq!(log.bullets[0].text, "Fix Android crash on startup");
         assert_eq!(log.bullets[0].id, "a7f3b2c1");
         assert!(log.bullets[0].notes.is_empty());
-        assert!(log.bullets[0].migration.is_none());
+        assert!(log.bullets[0].migrated_to.is_none() && log.bullets[0].migrated_from.is_none());
 
         // Second bullet: done task with notes
         assert_eq!(log.bullets[1].status, BulletStatus::Done);
@@ -455,8 +464,8 @@ mod tests {
         assert_eq!(log.bullets[4].status, BulletStatus::Migrated);
         assert_eq!(log.bullets[4].text, "Investigate memory leak");
         assert_eq!(log.bullets[4].notes.len(), 2);
-        match &log.bullets[4].migration {
-            Some(MigrationRef::To {
+        match &log.bullets[4].migrated_to {
+            Some(MigrationTo {
                 target_date,
                 target_id,
             }) => {
@@ -466,7 +475,7 @@ mod tests {
                 );
                 assert_eq!(target_id, "d8f2a1b5");
             }
-            other => panic!("expected MigrationRef::To, got {other:?}"),
+            other => panic!("expected MigrationTo, got {other:?}"),
         }
 
         // Sixth bullet: cancelled task
@@ -474,15 +483,15 @@ mod tests {
 
         // Seventh bullet: backlogged task with migration to backlog
         assert_eq!(log.bullets[6].status, BulletStatus::Backlogged);
-        match &log.bullets[6].migration {
-            Some(MigrationRef::To {
+        match &log.bullets[6].migrated_to {
+            Some(MigrationTo {
                 target_date,
                 target_id,
             }) => {
                 assert_eq!(*target_date, MigrationTarget::Backlog);
                 assert_eq!(target_id, "a3c7e9d1");
             }
-            other => panic!("expected MigrationRef::To(Backlog), got {other:?}"),
+            other => panic!("expected MigrationTo(Backlog), got {other:?}"),
         }
 
         // Eighth bullet: note
@@ -503,15 +512,15 @@ mod tests {
 
         // First bullet: open task migrated from another day
         assert_eq!(log.bullets[0].status, BulletStatus::Open);
-        match &log.bullets[0].migration {
-            Some(MigrationRef::From {
+        match &log.bullets[0].migrated_from {
+            Some(MigrationFrom {
                 source_date,
                 source_id,
             }) => {
                 assert_eq!(*source_date, NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
                 assert_eq!(source_id, "c5a1d9e7");
             }
-            other => panic!("expected MigrationRef::From, got {other:?}"),
+            other => panic!("expected MigrationFrom, got {other:?}"),
         }
     }
 
@@ -522,15 +531,15 @@ mod tests {
         assert_eq!(backlog.bullets.len(), 1);
         assert_eq!(backlog.bullets[0].status, BulletStatus::Open);
         assert_eq!(backlog.bullets[0].text, "Update API rate limiting config");
-        match &backlog.bullets[0].migration {
-            Some(MigrationRef::From {
+        match &backlog.bullets[0].migrated_from {
+            Some(MigrationFrom {
                 source_date,
                 source_id,
             }) => {
                 assert_eq!(*source_date, NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
                 assert_eq!(source_id, "a3c7e9d1");
             }
-            other => panic!("expected MigrationRef::From, got {other:?}"),
+            other => panic!("expected MigrationFrom, got {other:?}"),
         }
     }
 
@@ -638,9 +647,11 @@ mod tests {
 
     #[test]
     fn parse_migration_to_date() {
-        let result = parse_migration("[to 2026-04-06/d8f2a1b5](./2026-04-06.md)", 1).unwrap();
-        match result {
-            Some(MigrationRef::To {
+        let (migrated_to, migrated_from) =
+            parse_migration("[to 2026-04-06/d8f2a1b5](./2026-04-06.md)", 1).unwrap();
+        assert!(migrated_from.is_none());
+        match migrated_to {
+            Some(MigrationTo {
                 target_date,
                 target_id,
             }) => {
@@ -650,44 +661,49 @@ mod tests {
                 );
                 assert_eq!(target_id, "d8f2a1b5");
             }
-            other => panic!("expected Some(To), got {other:?}"),
+            other => panic!("expected Some(MigrationTo), got {other:?}"),
         }
     }
 
     #[test]
     fn parse_migration_to_backlog() {
-        let result = parse_migration("[to backlog/a3c7e9d1](./backlog.md)", 1).unwrap();
-        match result {
-            Some(MigrationRef::To {
+        let (migrated_to, migrated_from) =
+            parse_migration("[to backlog/a3c7e9d1](./backlog.md)", 1).unwrap();
+        assert!(migrated_from.is_none());
+        match migrated_to {
+            Some(MigrationTo {
                 target_date,
                 target_id,
             }) => {
                 assert_eq!(target_date, MigrationTarget::Backlog);
                 assert_eq!(target_id, "a3c7e9d1");
             }
-            other => panic!("expected Some(To(Backlog)), got {other:?}"),
+            other => panic!("expected Some(MigrationTo(Backlog)), got {other:?}"),
         }
     }
 
     #[test]
     fn parse_migration_from() {
-        let result = parse_migration("[from 2026-04-05/c5a1d9e7](./2026-04-05.md)", 1).unwrap();
-        match result {
-            Some(MigrationRef::From {
+        let (migrated_to, migrated_from) =
+            parse_migration("[from 2026-04-05/c5a1d9e7](./2026-04-05.md)", 1).unwrap();
+        assert!(migrated_to.is_none());
+        match migrated_from {
+            Some(MigrationFrom {
                 source_date,
                 source_id,
             }) => {
                 assert_eq!(source_date, NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
                 assert_eq!(source_id, "c5a1d9e7");
             }
-            other => panic!("expected Some(From), got {other:?}"),
+            other => panic!("expected Some(MigrationFrom), got {other:?}"),
         }
     }
 
     #[test]
     fn parse_migration_empty() {
-        let result = parse_migration("", 1).unwrap();
-        assert!(result.is_none());
+        let (migrated_to, migrated_from) = parse_migration("", 1).unwrap();
+        assert!(migrated_to.is_none());
+        assert!(migrated_from.is_none());
     }
 
     #[test]
@@ -738,12 +754,12 @@ mod tests {
         // Second bullet: plain open task with no migration
         assert_eq!(log.bullets[1].status, BulletStatus::Open);
         assert_eq!(log.bullets[1].text, "Finish quarterly OKR draft");
-        assert!(log.bullets[1].migration.is_none());
+        assert!(log.bullets[1].migrated_to.is_none() && log.bullets[1].migrated_from.is_none());
 
         // Last bullet: migrated task with to-link
         assert_eq!(log.bullets[6].status, BulletStatus::Migrated);
-        match &log.bullets[6].migration {
-            Some(MigrationRef::To {
+        match &log.bullets[6].migrated_to {
+            Some(MigrationTo {
                 target_date,
                 target_id,
             }) => {
@@ -753,7 +769,7 @@ mod tests {
                 );
                 assert_eq!(target_id, "b4e1c8a3");
             }
-            other => panic!("expected MigrationRef::To, got {other:?}"),
+            other => panic!("expected MigrationTo, got {other:?}"),
         }
     }
 
