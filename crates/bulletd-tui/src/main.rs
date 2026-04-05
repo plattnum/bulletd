@@ -1,3 +1,5 @@
+mod init;
+
 use clap::{Parser, Subcommand};
 use color_eyre::eyre::Result;
 
@@ -29,7 +31,7 @@ fn main() -> Result<()> {
             eprintln!("bulletd MCP server — not yet implemented");
         }
         Some(Command::Init) => {
-            eprintln!("bulletd init — not yet implemented");
+            init::run_init()?;
         }
         None => {
             eprintln!("bulletd TUI — not yet implemented");

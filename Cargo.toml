@@ -17,6 +17,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # ID generation
 rand = "0.9"
 
+# Platform
+dirs = "6"
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 

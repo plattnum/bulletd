@@ -1,3 +1,4 @@
+pub mod config;
 pub mod error;
 pub mod id;
 pub mod model;
@@ -5,6 +6,7 @@ pub mod parser;
 pub mod serializer;
 
 // Convenience re-exports
+pub use config::{Config, config_path, load_config, load_config_from, resolve_data_dir};
 pub use error::{Error, Result};
 pub use id::{generate_id, validate_id};
 pub use model::{

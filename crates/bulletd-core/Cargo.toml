@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 chrono = { workspace = true }
+dirs = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
