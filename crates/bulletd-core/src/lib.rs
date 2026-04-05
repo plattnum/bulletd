@@ -2,11 +2,13 @@ pub mod error;
 pub mod id;
 pub mod model;
 pub mod parser;
+pub mod serializer;
 
 // Convenience re-exports
-pub use error::{Error, Result, UnmigrateOutcome};
+pub use error::{Error, Result};
 pub use id::{generate_id, validate_id};
 pub use model::{
     BacklogLog, Bullet, BulletStatus, BulletType, DailyLog, MigrationRef, MigrationTarget,
 };
 pub use parser::{ParsedFile, parse_backlog, parse_daily_log, parse_file};
+pub use serializer::{serialize_backlog, serialize_daily_log, write_backlog, write_daily_log};

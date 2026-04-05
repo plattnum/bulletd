@@ -206,20 +206,42 @@ fn parse_table(
     Ok(bullets)
 }
 
-fn split_row(row: &str) -> Vec<&str> {
+fn split_row(row: &str) -> Vec<String> {
     let trimmed = row.trim();
     // Strip leading and trailing pipes, chaining fallbacks correctly
     let after_prefix = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = after_prefix.strip_suffix('|').unwrap_or(after_prefix);
-    inner.split('|').map(|s| s.trim()).collect()
+
+    // Split on unescaped pipes (not preceded by backslash)
+    let mut cells = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = inner.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1] == '|' {
+            // Escaped pipe — unescape it
+            current.push('|');
+            i += 2;
+        } else if chars[i] == '|' {
+            // Unescaped pipe — cell boundary
+            cells.push(current.trim().to_string());
+            current = String::new();
+            i += 1;
+        } else {
+            current.push(chars[i]);
+            i += 1;
+        }
+    }
+    cells.push(current.trim().to_string());
+    cells
 }
 
-fn parse_row(cols: &[&str], line_num: usize) -> crate::error::Result<Bullet> {
-    let status_str = cols[0];
-    let text = cols[1];
-    let notes_str = cols[2];
-    let migration_str = cols[3];
-    let id_str = cols[4];
+fn parse_row(cols: &[String], line_num: usize) -> crate::error::Result<Bullet> {
+    let status_str = &cols[0];
+    let text = &cols[1];
+    let notes_str = &cols[2];
+    let migration_str = &cols[3];
+    let id_str = &cols[4];
 
     // Parse status emoji
     let status = BulletStatus::from_emoji(status_str)?;
