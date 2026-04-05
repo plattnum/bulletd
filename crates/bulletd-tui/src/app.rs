@@ -197,6 +197,7 @@ impl App {
             KeyCode::Char('a') => self.start_add_bullet(),
             KeyCode::Char('e') => self.start_edit_bullet(),
             KeyCode::Char('d') => self.action_complete(),
+            KeyCode::Char('p') => self.action_reopen(),
             KeyCode::Char('x') => self.action_cancel(),
             KeyCode::Char('D') | KeyCode::Delete => self.action_delete(),
             KeyCode::Char('n') => self.start_add_note(),
@@ -306,6 +307,18 @@ impl App {
             match self.store.complete_task(self.current_date, &id) {
                 Ok(_) => {
                     self.status_message = Some("Task completed".to_string());
+                    self.reload_bullets();
+                }
+                Err(e) => self.status_message = Some(format!("Error: {e}")),
+            }
+        }
+    }
+
+    fn action_reopen(&mut self) {
+        if let Some(id) = self.selected_bullet_id().map(|s| s.to_string()) {
+            match self.store.reopen_bullet(self.current_date, &id) {
+                Ok(_) => {
+                    self.status_message = Some("Reopened".to_string());
                     self.reload_bullets();
                 }
                 Err(e) => self.status_message = Some(format!("Error: {e}")),
@@ -776,7 +789,7 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " q:quit j/k:nav [/]:day a:add e:edit n:note d:done x:cancel D:delete m:migrate b:backlog g:grab r:review o:open",
+            " q:quit j/k:nav [/]:day a:add e:edit n:note d:done p:reopen x:cancel D:del m:migrate b:backlog g:grab r:review o:open",
         );
     }
 

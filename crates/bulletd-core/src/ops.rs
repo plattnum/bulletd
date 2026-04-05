@@ -178,6 +178,11 @@ impl Store {
         self.set_task_status(date, id, BulletStatus::Cancelled)
     }
 
+    /// Reopen a bullet — set it back to Open (📌).
+    pub fn reopen_bullet(&self, date: NaiveDate, id: &str) -> crate::error::Result<Bullet> {
+        self.set_task_status(date, id, BulletStatus::Open)
+    }
+
     /// Delete a bullet from a day's log. Removes it entirely.
     pub fn delete_bullet(&self, date: NaiveDate, id: &str) -> crate::error::Result<()> {
         let mut log = self.load_daily_log(date)?;
