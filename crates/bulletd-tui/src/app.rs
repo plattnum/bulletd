@@ -55,7 +55,9 @@ enum ViewMode {
     },
     /// Migration history for a specific bullet.
     MigrationHistory {
-        chain: Vec<(NaiveDate, String, BulletStatus)>,
+        /// The bullet text (same across the chain).
+        title: String,
+        chain: Vec<(NaiveDate, String, BulletStatus, String)>,
     },
 }
 
@@ -618,13 +620,14 @@ impl App {
                 self.status_message = Some("No migration history for this bullet".to_string());
                 return;
             }
+            let title = bullet.text.clone();
             match self.store.migration_history(self.current_date, &bullet.id) {
                 Ok(chain) => {
                     if chain.is_empty() {
                         self.status_message = Some("No migration history found".to_string());
                         return;
                     }
-                    self.mode = ViewMode::MigrationHistory { chain };
+                    self.mode = ViewMode::MigrationHistory { title, chain };
                 }
                 Err(e) => self.status_message = Some(format!("Error: {e}")),
             }
@@ -851,16 +854,16 @@ impl App {
         ])
         .split(area);
 
-        let chain = match &self.mode {
-            ViewMode::MigrationHistory { chain } => chain,
+        let (title, chain) = match &self.mode {
+            ViewMode::MigrationHistory { title, chain } => (title, chain),
             _ => return,
         };
 
-        // Header
+        // Header — show the bullet text so you know what this chain is about
         let header = Paragraph::new(Line::from(vec![
             Span::styled("  ", Style::default()),
             Span::styled(
-                format!("Migration History — {} steps", chain.len()),
+                format!("Migration History — \"{title}\""),
                 Style::default()
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
@@ -873,25 +876,35 @@ impl App {
         );
         frame.render_widget(header, chunks[0]);
 
-        // Chain display
+        // Timeline display
         let mut lines: Vec<Line> = vec![Line::from("")];
-        for (i, (date, id, status)) in chain.iter().enumerate() {
-            let arrow = if i < chain.len() - 1 { " →" } else { "" };
+        for (i, (date, _id, status, _text)) in chain.iter().enumerate() {
+            let is_last = i == chain.len() - 1;
+            let connector = if is_last { "  └─ " } else { "  ├─ " };
+
             lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
+                Span::styled(connector, Style::default().fg(self.theme.muted)),
                 Span::styled(
                     format!("{} ", status.as_emoji()),
                     self.status_color(*status),
                 ),
                 Span::styled(
-                    format!("{date}/{id}"),
+                    date.format("%Y-%m-%d").to_string(),
                     Style::default().fg(self.theme.foreground),
                 ),
                 Span::styled(
-                    format!("  ({}){arrow}", status.display_name()),
+                    format!("  {}", status.display_name()),
                     Style::default().fg(self.theme.muted),
                 ),
             ]));
+
+            // Add a vertical connector line between entries (except after last)
+            if !is_last {
+                lines.push(Line::from(vec![Span::styled(
+                    "  │",
+                    Style::default().fg(self.theme.muted),
+                )]));
+            }
         }
 
         let paragraph = Paragraph::new(lines);

@@ -285,11 +285,12 @@ impl BulletdMcpServer {
             Ok(chain) => {
                 let steps: Vec<_> = chain
                     .iter()
-                    .map(|(date, id, status)| {
+                    .map(|(date, id, status, text)| {
                         json!({
                             "date": date.to_string(),
                             "id": id,
                             "status": status.as_emoji(),
+                            "text": text,
                         })
                     })
                     .collect();

@@ -519,11 +519,14 @@ impl Store {
     }
 
     /// Trace a bullet's migration chain.
+    ///
+    /// Returns a list of `(date, id, status, text)` tuples representing
+    /// each step in the chain from origin to final destination.
     pub fn migration_history(
         &self,
         date: NaiveDate,
         id: &str,
-    ) -> crate::error::Result<Vec<(NaiveDate, String, BulletStatus)>> {
+    ) -> crate::error::Result<Vec<(NaiveDate, String, BulletStatus, String)>> {
         let mut chain = Vec::new();
         let mut current_date = date;
         let mut current_id = id.to_string();
@@ -558,7 +561,12 @@ impl Store {
                 None => break,
             };
 
-            chain.push((current_date, current_id.clone(), bullet.status));
+            chain.push((
+                current_date,
+                current_id.clone(),
+                bullet.status,
+                bullet.text.clone(),
+            ));
 
             if let Some(MigrationTo {
                 target_date: MigrationTarget::Date(d),
@@ -1034,6 +1042,7 @@ mod tests {
         assert_eq!(history.len(), 3);
         assert_eq!(history[0].0, d1);
         assert_eq!(history[0].2, BulletStatus::Migrated);
+        assert_eq!(history[0].3, "Persistent task");
         assert_eq!(history[1].0, d2);
         assert_eq!(history[1].2, BulletStatus::Migrated);
         assert_eq!(history[2].0, d3);
