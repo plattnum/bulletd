@@ -17,3 +17,5 @@ color-eyre = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 tui-textarea = { workspace = true }
+notify = "7"
+notify-debouncer-mini = "0.5"

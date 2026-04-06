@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use chrono::{Local, NaiveDate};
@@ -8,16 +9,18 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use notify_debouncer_mini::new_debouncer;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
 };
 
 use bulletd_core::config::Config;
+use bulletd_core::config::IconsConfig;
 use bulletd_core::model::{Bullet, BulletStatus};
 use bulletd_core::ops::Store;
 
@@ -66,6 +69,7 @@ pub struct App {
     pub(crate) store: Store,
     theme: Theme,
     config: Config,
+    icons: IconsConfig,
     should_quit: bool,
     mode: ViewMode,
     /// The date currently being viewed (daily log).
@@ -78,6 +82,8 @@ pub struct App {
     status_message: Option<String>,
     /// Popup form for adding/editing bullets.
     bullet_form: Option<BulletForm>,
+    /// Whether the help overlay is visible.
+    show_help: bool,
 }
 
 impl App {
@@ -91,6 +97,7 @@ impl App {
             store,
             theme,
             config: config.clone(),
+            icons: IconsConfig::minimal(),
             should_quit: false,
             mode: ViewMode::DailyLog,
             current_date,
@@ -98,6 +105,7 @@ impl App {
             selected: 0,
             status_message: None,
             bullet_form: None,
+            show_help: false,
         };
         app.reload_bullets();
         app
@@ -143,8 +151,17 @@ impl App {
     }
 
     fn event_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+        // Set up file watcher on the data directory
+        let (fs_tx, fs_rx) = mpsc::channel();
+        let _debouncer = self.start_file_watcher(fs_tx);
+
         while !self.should_quit {
             terminal.draw(|frame| self.render(frame))?;
+
+            // Check for file system changes (non-blocking)
+            if fs_rx.try_recv().is_ok() {
+                self.reload_bullets();
+            }
 
             if event::poll(Duration::from_millis(250))?
                 && let Event::Key(key) = event::read()?
@@ -154,6 +171,38 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Start a file watcher on the data directory. Sends a signal on any .md file change.
+    fn start_file_watcher(
+        &self,
+        tx: mpsc::Sender<()>,
+    ) -> Option<notify_debouncer_mini::Debouncer<notify::RecommendedWatcher>> {
+        let data_dir = bulletd_core::config::resolve_data_dir(&self.config.general.data_dir);
+
+        let mut debouncer = match new_debouncer(
+            Duration::from_millis(200),
+            move |result: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
+                if let Ok(events) = result {
+                    let dominated = events.iter().any(|e| {
+                        let path = e.path.to_string_lossy();
+                        path.ends_with(".md") && !path.ends_with(".md.tmp")
+                    });
+                    if dominated {
+                        let _ = tx.send(());
+                    }
+                }
+            },
+        ) {
+            Ok(d) => d,
+            Err(_) => return None,
+        };
+
+        let _ = debouncer
+            .watcher()
+            .watch(&data_dir, notify::RecursiveMode::NonRecursive);
+
+        Some(debouncer)
     }
 
     // -- Key handling --
@@ -212,6 +261,19 @@ impl App {
             return;
         }
 
+        // Help overlay — intercept before mode-specific handlers
+        if self.show_help {
+            match key {
+                KeyCode::Char('?') | KeyCode::Esc => self.show_help = false,
+                _ => {}
+            }
+            return;
+        }
+        if key == KeyCode::Char('?') {
+            self.show_help = true;
+            return;
+        }
+
         match &self.mode {
             ViewMode::DailyLog => self.handle_key_daily_log(key),
             ViewMode::Grab(_) => self.handle_key_grab(key),
@@ -244,16 +306,17 @@ impl App {
                 }
             }
             KeyCode::Char('d') => self.action_complete(),
-            KeyCode::Char('p') => self.action_reopen(),
+            KeyCode::Char('o') => self.action_reopen(),
             KeyCode::Char('x') => self.action_cancel(),
             KeyCode::Char('D') | KeyCode::Delete => self.action_delete(),
             KeyCode::Char('m') => self.action_migrate(),
             KeyCode::Char('u') => self.action_unmigrate(),
             KeyCode::Char('b') => self.action_backlog(),
-            KeyCode::Char('g') => self.start_grab(),
+            KeyCode::Enter => self.start_grab(),
             KeyCode::Char('r') => self.enter_review_mode(),
-            KeyCode::Char('o') => self.enter_open_tasks(),
+            KeyCode::Char('O') => self.enter_open_tasks(),
             KeyCode::Char('H') => self.enter_migration_history(),
+            KeyCode::Char('i') => self.toggle_icons(),
             _ => {}
         }
     }
@@ -649,6 +712,11 @@ impl App {
         if let Some(ref mut form) = self.bullet_form {
             form.render(frame, frame.area(), &self.theme);
         }
+
+        // Render help overlay on top of everything
+        if self.show_help {
+            self.render_help(frame);
+        }
     }
 
     fn render_daily_log(&self, frame: &mut ratatui::Frame) {
@@ -665,7 +733,7 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " q:quit hjkl:nav a:add e:edit d:done p:reopen x:cancel D:del m:migrate b:backlog g:grab r:review o:open",
+            " q:quit hjkl:nav a:add e:edit d:done o:open x:cancel D:del m:migrate b:backlog enter:grab r:review O:all-open i:icons",
         );
     }
 
@@ -705,20 +773,32 @@ impl App {
             _ => return,
         };
 
-        // Header
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled("  ", Style::default()),
-            Span::styled(
-                format!("Review — Task {} of {}", current + 1, total),
-                Style::default()
-                    .fg(self.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(
-                format!("  {}", self.current_date),
-                Style::default().fg(self.theme.muted),
-            ),
-        ]))
+        // Header with context
+        let header = Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!(
+                        "Reviewing open tasks for {}",
+                        self.current_date.format("%Y-%m-%d")
+                    ),
+                    Style::default().fg(self.theme.muted),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("Task {} of {}", current + 1, total),
+                    Style::default()
+                        .fg(self.theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " — decide: done, cancel, migrate, or backlog",
+                    Style::default().fg(self.theme.muted),
+                ),
+            ]),
+        ])
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)
@@ -734,7 +814,7 @@ impl App {
                     Line::from(vec![
                         Span::styled("  ", Style::default()),
                         Span::styled(
-                            format!("{} ", bullet.status.as_emoji()),
+                            format!("{} ", self.status_icon(bullet.status)),
                             self.status_color(bullet.status),
                         ),
                         Span::styled(
@@ -784,16 +864,37 @@ impl App {
             _ => return,
         };
 
-        // Header
-        let header = Paragraph::new(Line::from(vec![
-            Span::styled("  ", Style::default()),
-            Span::styled(
-                format!("Open Tasks — {} total", tasks.len()),
-                Style::default()
-                    .fg(self.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]))
+        // Header with context
+        let lookback = self.config.general.lookback_days;
+        let today = Local::now().date_naive();
+        let start_date = today - chrono::Duration::days(i64::from(lookback) - 1);
+        let header = Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!(
+                        "Open tasks from last {} days ({} to {})",
+                        lookback,
+                        start_date.format("%Y-%m-%d"),
+                        today.format("%Y-%m-%d"),
+                    ),
+                    Style::default().fg(self.theme.muted),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    format!("{} unresolved", tasks.len()),
+                    Style::default()
+                        .fg(self.theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " — select and press Enter to jump to that day",
+                    Style::default().fg(self.theme.muted),
+                ),
+            ]),
+        ])
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)
@@ -832,7 +933,7 @@ impl App {
                     Style::default().fg(self.theme.accent),
                 ),
                 Span::styled(
-                    format!("{} ", bullet.status.as_emoji()),
+                    format!("{} ", self.status_icon(bullet.status)),
                     self.status_color(bullet.status),
                 ),
                 Span::styled(&bullet.text, text_style),
@@ -885,7 +986,7 @@ impl App {
             lines.push(Line::from(vec![
                 Span::styled(connector, Style::default().fg(self.theme.muted)),
                 Span::styled(
-                    format!("{} ", status.as_emoji()),
+                    format!("{} ", self.status_icon(*status)),
                     self.status_color(*status),
                 ),
                 Span::styled(
@@ -915,6 +1016,57 @@ impl App {
 
     // -- Shared rendering helpers --
 
+    fn render_help(&self, frame: &mut ratatui::Frame) {
+        let area = frame.area();
+        let width = 50u16.min(area.width.saturating_sub(4));
+        let height = 28u16.min(area.height.saturating_sub(4));
+        let x = (area.width.saturating_sub(width)) / 2;
+        let y = (area.height.saturating_sub(height)) / 2;
+        let popup = Rect::new(x, y, width, height);
+
+        let help_text = "\
+ ── Navigation ──────────────────
+  j / k        Move down / up
+  h / l        Previous / next day
+  ← / → / ↑ / ↓  Arrow key nav
+
+ ── Bullets ─────────────────────
+  a            Add new bullet
+  e            Edit selected bullet
+  d            Mark done
+  o            Set to open
+  x            Cancel
+  m            Migrate to tomorrow
+  u            Unmigrate
+  b            Move to backlog
+  D            Delete
+  Enter        Grab and reorder
+
+ ── Views ───────────────────────
+  r            Review open bullets
+  O            All open bullets
+  H            Migration history
+  i            Toggle icon style
+
+ ── General ─────────────────────
+  ?            Toggle this help
+  q            Quit";
+
+        let paragraph = Paragraph::new(help_text)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(self.theme.foreground))
+            .block(
+                Block::default()
+                    .title(" Help (? to close) ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(self.theme.accent))
+                    .style(Style::default().bg(self.theme.background)),
+            );
+
+        frame.render_widget(Clear, popup);
+        frame.render_widget(paragraph, popup);
+    }
+
     fn render_header(&self, frame: &mut ratatui::Frame, area: Rect) {
         let today = Local::now().date_naive();
         let date_str = self.current_date.format("%Y-%m-%d").to_string();
@@ -925,6 +1077,13 @@ impl App {
         };
 
         let header = Paragraph::new(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                "bulletd",
+                Style::default()
+                    .fg(self.theme.foreground)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled("  ", Style::default()),
             Span::styled(
                 day_label,
@@ -985,11 +1144,21 @@ impl App {
                 Style::default()
             };
 
-            let mut main_line = Line::from(vec![
+            let mut spans = vec![
                 Span::styled(select_indicator, Style::default().fg(self.theme.accent)),
-                Span::styled(format!("{} ", bullet.status.as_emoji()), status_style),
-                Span::styled(&bullet.text, text_style),
-            ]);
+                Span::styled(
+                    format!("{} ", self.status_icon(bullet.status)),
+                    status_style,
+                ),
+            ];
+            spans.push(Span::styled(&bullet.text, text_style));
+            if self.config.display.show_ids {
+                spans.push(Span::styled(
+                    format!(" ({})", bullet.id),
+                    Style::default().fg(self.theme.muted),
+                ));
+            }
+            let mut main_line = Line::from(spans);
             if is_grabbed {
                 main_line = main_line.style(line_bg);
             }
@@ -1056,6 +1225,20 @@ impl App {
             BulletStatus::Backlogged => self.theme.warning,
         };
         Style::default().fg(color)
+    }
+
+    fn status_icon(&self, status: BulletStatus) -> &str {
+        status.display_icon(&self.icons)
+    }
+
+    fn toggle_icons(&mut self) {
+        if self.icons == IconsConfig::minimal() {
+            self.icons = IconsConfig::emoji();
+            self.status_message = Some("Icons: emoji".to_string());
+        } else {
+            self.icons = IconsConfig::minimal();
+            self.status_message = Some("Icons: minimal".to_string());
+        }
     }
 }
 
