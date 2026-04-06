@@ -4,7 +4,7 @@ use chrono::{Local, NaiveDate};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{ServerCapabilities, ServerInfo};
-use rmcp::{ServerHandler, tool, tool_router};
+use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use serde_json::json;
 
 use bulletd_core::config::Config;
@@ -25,13 +25,22 @@ pub struct BulletdMcpServer {
     state: Arc<McpState>,
 }
 
+const SERVER_INSTRUCTIONS: &str = "\
+bulletd is a digital bullet journal. A bullet is a single line entry in a daily log \
+with a status (open, done, migrated, cancelled, backlogged) and optional context notes. \
+Daily logs are stored as markdown files, one per day. \
+The typical workflow: add bullets throughout the day, then review what's still open \
+and decide to complete, cancel, migrate to tomorrow, or shelve to the backlog. \
+Use list_bullets with status=open to review a day. \
+Dates are always YYYY-MM-DD. Bullet IDs are short (letter + digit, e.g. \"a3\"). \
+When displaying bullets to the user, put the ID at the end in parentheses, e.g.: \
+\"Fix flaky auth test (b7)\". Notes go in parentheses after the text, before the ID.";
+
+#[tool_handler]
 impl ServerHandler for BulletdMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions(
-                "bulletd structured bullet logging server. Manages daily logs stored as GFM markdown tables."
-                    .to_string(),
-            )
+            .with_instructions(SERVER_INSTRUCTIONS.to_string())
     }
 }
 
@@ -44,7 +53,7 @@ impl BulletdMcpServer {
         }
     }
 
-    #[tool(description = "Add a bullet to a day's log")]
+    #[tool(description = "Add a bullet to a day's log. Returns the new bullet's id.")]
     fn add_bullet(&self, Parameters(params): Parameters<AddBulletParams>) -> String {
         let date = match parse_optional_date(params.date.as_deref()) {
             Ok(d) => d,
@@ -56,8 +65,6 @@ impl BulletdMcpServer {
         match self.state.store.add_bullet(params.text, notes, Some(date)) {
             Ok(bullet) => json!({
                 "id": bullet.id,
-                "status": bullet.status.as_emoji(),
-                "text": bullet.text,
                 "date": date.to_string(),
             })
             .to_string(),
@@ -65,7 +72,9 @@ impl BulletdMcpServer {
         }
     }
 
-    #[tool(description = "List bullets for a date with optional status filter")]
+    #[tool(
+        description = "List bullets for a date. Filter by status: open, done, migrated, cancelled, backlogged."
+    )]
     fn list_bullets(&self, Parameters(params): Parameters<ListBulletsParams>) -> String {
         let date = match parse_optional_date(params.date.as_deref()) {
             Ok(d) => d,
@@ -79,21 +88,25 @@ impl BulletdMcpServer {
                 let items: Vec<_> = bullets
                     .iter()
                     .map(|b| {
-                        json!({
+                        let mut entry = json!({
                             "id": b.id,
-                            "status": b.status.as_emoji(),
+                            "status": b.status.display_name(),
                             "text": b.text,
-                            "notes": b.notes,
-                        })
+                        });
+                        if !b.notes.is_empty() {
+                            entry["notes"] = json!(b.notes);
+                        }
+                        entry
                     })
                     .collect();
-                json!({"date": date.to_string(), "bullets": items}).to_string()
+                json!({"date": date.to_string(), "count": items.len(), "bullets": items})
+                    .to_string()
             }
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Update a bullet's text and/or notes")]
+    #[tool(description = "Update a bullet's text.")]
     fn update_bullet(&self, Parameters(params): Parameters<UpdateBulletParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
@@ -103,57 +116,109 @@ impl BulletdMcpServer {
         match self
             .state
             .store
-            .update_bullet(date, &params.id, params.text, params.notes)
+            .update_bullet(date, &params.id, Some(params.text), None)
         {
             Ok(bullet) => json!({
                 "id": bullet.id,
-                "status": bullet.status.as_emoji(),
                 "text": bullet.text,
-                "notes": bullet.notes,
             })
             .to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Mark a task as done")]
-    fn complete_task(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
+    #[tool(description = "Append a note line to a bullet.")]
+    fn append_note(&self, Parameters(params): Parameters<AppendNoteParams>) -> String {
+        let date = match parse_date(&params.date) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        match self.state.store.append_note(date, &params.id, params.note) {
+            Ok(bullet) => json!({
+                "ok": true,
+                "notes_count": bullet.notes.len(),
+            })
+            .to_string(),
+            Err(e) => json!({"error": e.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(description = "Replace all notes on a bullet.")]
+    fn update_notes(&self, Parameters(params): Parameters<UpdateNotesParams>) -> String {
+        let date = match parse_date(&params.date) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        match self
+            .state
+            .store
+            .update_notes(date, &params.id, params.notes)
+        {
+            Ok(bullet) => json!({
+                "ok": true,
+                "notes_count": bullet.notes.len(),
+            })
+            .to_string(),
+            Err(e) => json!({"error": e.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(description = "Clear all notes from a bullet.")]
+    fn clear_notes(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
+        let date = match parse_date(&params.date) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        match self.state.store.clear_notes(date, &params.id) {
+            Ok(_) => json!({"ok": true}).to_string(),
+            Err(e) => json!({"error": e.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(description = "Mark a bullet as done.")]
+    fn complete_bullet(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
         };
 
         match self.state.store.complete_task(date, &params.id) {
-            Ok(bullet) => json!({
-                "id": bullet.id,
-                "status": bullet.status.as_emoji(),
-                "text": bullet.text,
-            })
-            .to_string(),
+            Ok(_) => json!({"ok": true}).to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Mark a task as cancelled")]
-    fn cancel_task(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
+    #[tool(description = "Mark a bullet as cancelled.")]
+    fn cancel_bullet(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
         };
 
         match self.state.store.cancel_task(date, &params.id) {
-            Ok(bullet) => json!({
-                "id": bullet.id,
-                "status": bullet.status.as_emoji(),
-                "text": bullet.text,
-            })
-            .to_string(),
+            Ok(_) => json!({"ok": true}).to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Migrate a task to another day (defaults to tomorrow)")]
-    fn migrate_task(&self, Parameters(params): Parameters<MigrateTaskParams>) -> String {
+    #[tool(description = "Set a bullet back to open.")]
+    fn open_bullet(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
+        let date = match parse_date(&params.date) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        match self.state.store.reopen_bullet(date, &params.id) {
+            Ok(_) => json!({"ok": true}).to_string(),
+            Err(e) => json!({"error": e.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(description = "Migrate a bullet to another day. Defaults to tomorrow.")]
+    fn migrate_bullet(&self, Parameters(params): Parameters<MigrateBulletParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
@@ -168,25 +233,21 @@ impl BulletdMcpServer {
         };
 
         match self.state.store.migrate_task(date, &params.id, target) {
-            Ok((source, target_bullet)) => json!({
-                "source": {
-                    "id": source.id,
-                    "status": source.status.as_emoji(),
-                    "text": source.text,
-                },
-                "target": {
-                    "id": target_bullet.id,
-                    "status": target_bullet.status.as_emoji(),
-                    "text": target_bullet.text,
-                },
+            Ok((_, target_bullet)) => json!({
+                "ok": true,
+                "target_id": target_bullet.id,
+                "target_date": target.map_or_else(
+                    || (date.succ_opt().unwrap_or(date)).to_string(),
+                    |d| d.to_string()
+                ),
             })
             .to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Reverse a migration — revert source to open, clean up target")]
-    fn unmigrate_task(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
+    #[tool(description = "Reverse a migration. Reopens the source bullet.")]
+    fn unmigrate_bullet(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
@@ -194,39 +255,57 @@ impl BulletdMcpServer {
 
         match self.state.store.unmigrate_task(date, &params.id) {
             Ok(outcome) => json!({
+                "ok": true,
                 "outcome": format!("{outcome:?}"),
-                "id": params.id,
             })
             .to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Move a task to the backlog")]
-    fn backlog_task(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
+    #[tool(description = "Move a bullet to the backlog.")]
+    fn backlog_bullet(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
             Err(e) => return json!({"error": e}).to_string(),
         };
 
         match self.state.store.backlog_task(date, &params.id) {
-            Ok((source, backlog_bullet)) => json!({
-                "source": {
-                    "id": source.id,
-                    "status": source.status.as_emoji(),
-                },
-                "backlog": {
-                    "id": backlog_bullet.id,
-                    "text": backlog_bullet.text,
-                },
+            Ok((_, backlog_bullet)) => json!({
+                "ok": true,
+                "backlog_id": backlog_bullet.id,
             })
             .to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "List all open tasks across recent days")]
-    fn list_open_tasks(&self, Parameters(params): Parameters<ListOpenTasksParams>) -> String {
+    #[tool(
+        description = "Move a bullet to a new position in the day's list. Position: \"top\", \"bottom\", or a 0-based index."
+    )]
+    fn move_bullet(&self, Parameters(params): Parameters<MoveBulletParams>) -> String {
+        let date = match parse_date(&params.date) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        let result = match params.position.as_str() {
+            "top" => self.state.store.move_bullet_to(date, &params.id, 0),
+            "bottom" => self.state.store.move_bullet_to(date, &params.id, usize::MAX),
+            s => match s.parse::<usize>() {
+                Ok(pos) => self.state.store.move_bullet_to(date, &params.id, pos),
+                Err(_) => return json!({"error": format!("invalid position: {s} (use \"top\", \"bottom\", or a number)")}).to_string(),
+            },
+        };
+
+        match result {
+            Ok(()) => json!({"ok": true}).to_string(),
+            Err(e) => json!({"error": e.to_string()}).to_string(),
+        }
+    }
+
+    #[tool(description = "List all open bullets across recent days.")]
+    fn list_open_bullets(&self, Parameters(params): Parameters<ListOpenBulletsParams>) -> String {
         let lookback = params
             .lookback_days
             .unwrap_or(self.state.config.general.lookback_days);
@@ -243,38 +322,13 @@ impl BulletdMcpServer {
                         })
                     })
                     .collect();
-                json!({"open_tasks": items}).to_string()
+                json!({"count": items.len(), "bullets": items}).to_string()
             }
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
     }
 
-    #[tool(description = "Get open tasks needing review for a date")]
-    fn daily_review(&self, Parameters(params): Parameters<DailyReviewParams>) -> String {
-        let date = match parse_optional_date(params.date.as_deref()) {
-            Ok(d) => d,
-            Err(e) => return json!({"error": e}).to_string(),
-        };
-
-        match self.state.store.daily_review(date) {
-            Ok(bullets) => {
-                let items: Vec<_> = bullets
-                    .iter()
-                    .map(|b| {
-                        json!({
-                            "id": b.id,
-                            "text": b.text,
-                            "notes": b.notes,
-                        })
-                    })
-                    .collect();
-                json!({"date": date.to_string(), "open_tasks": items}).to_string()
-            }
-            Err(e) => json!({"error": e.to_string()}).to_string(),
-        }
-    }
-
-    #[tool(description = "Trace a task's migration chain across days")]
+    #[tool(description = "Trace a bullet's migration chain across days.")]
     fn migration_history(&self, Parameters(params): Parameters<BulletRefParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
@@ -289,7 +343,7 @@ impl BulletdMcpServer {
                         json!({
                             "date": date.to_string(),
                             "id": id,
-                            "status": status.as_emoji(),
+                            "status": status.display_name(),
                             "text": text,
                         })
                     })
@@ -298,6 +352,41 @@ impl BulletdMcpServer {
             }
             Err(e) => json!({"error": e.to_string()}).to_string(),
         }
+    }
+
+    #[tool(
+        description = "Change the status of multiple bullets at once. Status: \"done\", \"open\", \"cancelled\"."
+    )]
+    fn batch_set_status(&self, Parameters(params): Parameters<BatchStatusParams>) -> String {
+        let date = match parse_date(&params.date) {
+            Ok(d) => d,
+            Err(e) => return json!({"error": e}).to_string(),
+        };
+
+        let mut ok = Vec::new();
+        let mut errors = Vec::new();
+
+        for id in &params.ids {
+            let result = match params.status.as_str() {
+                "done" => self.state.store.complete_task(date, id),
+                "open" => self.state.store.reopen_bullet(date, id),
+                "cancelled" => self.state.store.cancel_task(date, id),
+                other => {
+                    errors.push(json!({"id": id, "error": format!("unsupported status: {other}")}));
+                    continue;
+                }
+            };
+            match result {
+                Ok(_) => ok.push(id.as_str()),
+                Err(e) => errors.push(json!({"id": id, "error": e.to_string()})),
+            }
+        }
+
+        let mut resp = json!({"updated": ok, "count": ok.len()});
+        if !errors.is_empty() {
+            resp["errors"] = json!(errors);
+        }
+        resp.to_string()
     }
 }
 
