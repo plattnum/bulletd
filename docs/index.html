@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>bulletd - A Highly Opinionated Digital Bullet Journal</title>
+    <meta name="description" content="A highly opinionated digital bullet journal for the terminal. Talk to your journal through AI via MCP, or use the TUI. Plain markdown, no cloud, no bloat.">
+    <meta name="keywords" content="bullet journal, TUI, terminal, MCP, AI, Rust, CLI, daily log, task management, markdown">
+    <meta name="author" content="plattnum">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="bulletd - A Highly Opinionated Digital Bullet Journal">
+    <meta property="og:description" content="Talk to your journal. A terminal bullet journal with an MCP server for AI agents. Plain markdown, no cloud, no bloat.">
+    <meta property="og:url" content="https://plattnum.github.io/bulletd">
+    <meta property="og:type" content="website">
+
+<style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --border: #30363d;
+            --fg: #e6edf3;
+            --muted: #8b949e;
+            --accent: #58a6ff;
+            --accent-dim: #1f6feb;
+            --success: #3fb950;
+            --warning: #d29922;
+            --purple: #bc8cff;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--fg);
+            line-height: 1.6;
+        }
+
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Nav */
+        nav {
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        nav .logo {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--fg);
+        }
+        nav .logo span { color: var(--accent); }
+        nav .links { display: flex; gap: 24px; }
+        nav .links a { color: var(--muted); font-size: 0.9rem; }
+        nav .links a:hover { color: var(--fg); text-decoration: none; }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0 40px;
+            text-align: center;
+        }
+        .hero h1 {
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+        .hero h1 span { color: var(--accent); }
+        .hero .tagline {
+            font-size: 1.25rem;
+            color: var(--muted);
+            max-width: 640px;
+            margin: 0 auto 32px;
+        }
+        .hero .cta {
+            display: inline-flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { text-decoration: none; opacity: 0.9; }
+        .btn-primary {
+            background: var(--accent-dim);
+            color: #fff;
+        }
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--fg);
+            border: 1px solid var(--border);
+        }
+
+        /* Screenshots */
+        .screenshots {
+            padding: 40px 0;
+        }
+        .screenshots .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+        .screenshots figure {
+            text-align: center;
+        }
+        .screenshots img {
+            max-width: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .screenshots figcaption {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+        @media (max-width: 600px) {
+            .screenshots .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Install */
+        .install {
+            padding: 40px 0;
+            text-align: center;
+        }
+        .install h2 {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+        }
+        .code-block {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px 24px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: var(--success);
+            display: inline-block;
+            text-align: left;
+            max-width: 100%;
+            overflow-x: auto;
+        }
+
+        /* Story */
+        .story {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+        }
+        .story h2 {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .story .prose {
+            max-width: 700px;
+            margin: 0 auto;
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1.8;
+        }
+        .story .prose p {
+            margin-bottom: 16px;
+        }
+        .story .prose strong {
+            color: var(--fg);
+        }
+
+        /* Features */
+        .features {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+        }
+        .features h2 {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 48px;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 24px;
+        }
+        .feature {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .feature .icon {
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+        }
+        .feature h3 {
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+        .feature p {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        /* MCP Tools */
+        .mcp-tools {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+        }
+        .mcp-tools h2 {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .mcp-tools .subtitle {
+            text-align: center;
+            color: var(--muted);
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+        .tools-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .tools-table th {
+            text-align: left;
+            padding: 10px 16px;
+            border-bottom: 2px solid var(--border);
+            color: var(--muted);
+            font-weight: 600;
+        }
+        .tools-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .tools-table td:first-child {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: var(--accent);
+            white-space: nowrap;
+        }
+        .tools-table td:last-child {
+            color: var(--muted);
+        }
+        .tools-table .category td {
+            padding-top: 20px;
+            font-weight: 700;
+            color: var(--fg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* How it works */
+        .how-it-works {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+        }
+        .how-it-works h2 {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .how-it-works .subtitle {
+            text-align: center;
+            color: var(--muted);
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 32px;
+            text-align: center;
+        }
+        .step .number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent-dim);
+            color: #fff;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .step h3 { margin-bottom: 8px; }
+        .step p { color: var(--muted); font-size: 0.9rem; }
+        .step code {
+            background: var(--surface);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: var(--success);
+        }
+
+        /* Data format */
+        .data-format {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+        .data-format h2 {
+            font-size: 2rem;
+            margin-bottom: 16px;
+        }
+        .data-format .subtitle {
+            color: var(--muted);
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+        .data-format pre {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: left;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            color: var(--fg);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+        footer .links {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 600px) {
+            .hero h1 { font-size: 2rem; }
+            .hero .tagline { font-size: 1rem; }
+            .features h2, .how-it-works h2, .story h2, .mcp-tools h2, .data-format h2 { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="container">
+        <div class="logo"><span>bulletd</span></div>
+        <div class="links">
+            <a href="https://github.com/plattnum/bulletd">GitHub</a>
+            <a href="https://github.com/plattnum/bulletd/releases">Releases</a>
+            <a href="https://www.buymeacoffee.com/plattnum">Support</a>
+        </div>
+    </div>
+</nav>
+
+<section class="hero">
+    <div class="container">
+        <h1><span>bullet</span>d</h1>
+        <p class="tagline">
+            A highly opinionated digital bullet journal for the terminal. Talk to your journal through AI, or use the TUI. One markdown file per day. No cloud, no bloat.
+        </p>
+        <div class="cta">
+            <a href="https://github.com/plattnum/bulletd" class="btn btn-primary">View on GitHub</a>
+            <a href="#install" class="btn btn-secondary">Install</a>
+        </div>
+    </div>
+</section>
+
+<section class="screenshots">
+    <div class="container">
+        <figure>
+            <img src="images/main-screen-emojii-icons.png" alt="bulletd TUI with emoji icons">
+            <figcaption>Emoji icon style</figcaption>
+        </figure>
+        <figure>
+            <img src="images/main-screen-simple-icons.png" alt="bulletd TUI with simple icons">
+            <figcaption>Minimal icon style</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="story">
+    <div class="container">
+        <h2>Why does this exist?</h2>
+        <div class="prose">
+            <p>I've kept a paper bullet journal for years to deal with my day to day work tasks. I always wanted to just <strong>talk to it</strong> &mdash; say "add a bullet", "what's still open", "migrate that to tomorrow" &mdash; without the friction of pen and paper.</p>
+            <p>But every digital tool I tried missed the point. TODO apps come with too much of the kitchen sink: priorities, labels, due dates, recurring tasks, and endless grooming. You spend more time managing the system than using it. MCP servers that wrap SaaS tools like Linear or Todoist are slow as molasses &mdash; every call is a round trip to someone else's API.</p>
+            <p>The idea clicked when I saw the Task Tools in Claude's Cowork. An AI managing your daily log alongside you &mdash; that's what I wanted. I tried building it as a Claude Code plugin backed by Markdown files, but it was never fully deterministic. The AI has to read files into context, parse the format, and try to enforce schema rules with no guarantees. It mostly works, but it's fragile.</p>
+            <p>So bulletd is the answer: <strong>a local MCP server that owns the data format</strong>. Instead of reading and rewriting Markdown files, the AI calls typed tools &mdash; <code>add_bullet</code>, <code>complete_bullet</code>, <code>migrate_bullet</code> &mdash; and the server handles parsing, validation, and persistence. The AI doesn't need to think about file formats or worry about corrupting your data. It just translates what you say into API calls. Fast, local, deterministic, and correct by construction.</p>
+        </div>
+    </div>
+</section>
+
+<section class="features">
+    <div class="container">
+        <h2>What you get</h2>
+        <div class="feature-grid">
+            <div class="feature">
+                <div class="icon">&#128221;</div>
+                <h3>Everything is a Bullet</h3>
+                <p>No distinction between tasks, events, and notes. Just bullets with a status and optional context notes for the "why" behind the "what".</p>
+            </div>
+            <div class="feature">
+                <div class="icon">&#129302;</div>
+                <h3>MCP Server</h3>
+                <p>Full programmatic access for AI agents. 16 typed tools for adding, completing, migrating, and querying bullets. Deterministic, no context window pollution.</p>
+            </div>
+            <div class="feature">
+                <div class="icon">&#128196;</div>
+                <h3>One File Per Day</h3>
+                <p>Each day is a single Markdown file with a GFM table. Human-readable, git-friendly, opens anywhere. That's the entire data model.</p>
+            </div>
+            <div class="feature">
+                <div class="icon">&#10140;</div>
+                <h3>Migration, Not Snooze</h3>
+                <p>No auto-migration, no "snooze all" button. Every open bullet forces a choice: done, move, drop, or shelve. The friction is the feature.</p>
+            </div>
+            <div class="feature">
+                <div class="icon">&#128274;</div>
+                <h3>No Cloud Required</h3>
+                <p>Everything runs locally. Sync your data directory via git, Dropbox, or iCloud if you want. Your data stays yours.</p>
+            </div>
+            <div class="feature">
+                <div class="icon">&#9889;</div>
+                <h3>Fast</h3>
+                <p>Built in Rust. Starts instantly, lightweight, and responsive. The MCP server responds in milliseconds, not seconds.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="mcp-tools">
+    <div class="container">
+        <h2>MCP Tools</h2>
+        <p class="subtitle">Every operation your AI agent needs to manage your daily log. No file reading, no parsing &mdash; just call the tool.</p>
+        <table class="tools-table">
+            <thead>
+                <tr><th>Tool</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+                <tr class="category"><td colspan="2">Bullets</td></tr>
+                <tr><td>add_bullet</td><td>Add a bullet to a day's log</td></tr>
+                <tr><td>list_bullets</td><td>List bullets for a date, optionally filtered by status</td></tr>
+                <tr><td>list_open_bullets</td><td>List all open bullets across recent days</td></tr>
+                <tr><td>update_bullet</td><td>Update a bullet's text</td></tr>
+                <tr class="category"><td colspan="2">Status</td></tr>
+                <tr><td>complete_bullet</td><td>Mark a bullet as done</td></tr>
+                <tr><td>cancel_bullet</td><td>Mark a bullet as cancelled</td></tr>
+                <tr><td>open_bullet</td><td>Set a bullet back to open</td></tr>
+                <tr><td>batch_set_status</td><td>Change status of multiple bullets at once</td></tr>
+                <tr class="category"><td colspan="2">Migration</td></tr>
+                <tr><td>migrate_bullet</td><td>Migrate a bullet to another day (defaults to tomorrow)</td></tr>
+                <tr><td>unmigrate_bullet</td><td>Reverse a migration, reopening the source bullet</td></tr>
+                <tr><td>backlog_bullet</td><td>Move a bullet to the backlog</td></tr>
+                <tr><td>migration_history</td><td>Trace a bullet's migration chain across days</td></tr>
+                <tr class="category"><td colspan="2">Notes</td></tr>
+                <tr><td>append_note</td><td>Append a note line to a bullet</td></tr>
+                <tr><td>update_notes</td><td>Replace all notes on a bullet</td></tr>
+                <tr><td>clear_notes</td><td>Clear all notes from a bullet</td></tr>
+                <tr class="category"><td colspan="2">Reorder</td></tr>
+                <tr><td>move_bullet</td><td>Move a bullet to a new position (top, bottom, or index)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="data-format">
+    <div class="container">
+        <h2>Your data, readable everywhere</h2>
+        <p class="subtitle">Each day is a single Markdown file. Open it in any editor, viewer, or on GitHub.</p>
+        <pre>
+# 2026-04-06
+
+| Status | Bullet                  | Notes                          | Migration                          | ID  |
+|--------|-------------------------|--------------------------------|------------------------------------|-----|
+| &#128204;     | Fix flaky auth test     | Relies on wall clock timing    |                                    | b7  |
+| &#9989;     | Deploy to staging       |                                |                                    | f4  |
+| &#10145;&#65039;     | Update SDK              | Blocked on v2.1                | [to 2026-04-07/m4](./2026-04-07.md) | a9  |</pre>
+    </div>
+</section>
+
+<section class="how-it-works" id="install">
+    <div class="container">
+        <h2>Up and running in 3 steps</h2>
+        <p class="subtitle">No account required. No configuration files to edit. Just install, init, and go.</p>
+        <div class="steps">
+            <div class="step">
+                <div class="number">1</div>
+                <h3>Install</h3>
+                <p><code>cargo install --path crates/bulletd-tui</code></p>
+            </div>
+            <div class="step">
+                <div class="number">2</div>
+                <h3>Initialize</h3>
+                <p>Run <code>bulletd init</code> to set up your config and data directory.</p>
+            </div>
+            <div class="step">
+                <div class="number">3</div>
+                <h3>Use it</h3>
+                <p>Run <code>bulletd</code> for the TUI, or <code>bulletd serve</code> for AI access via MCP.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        <div class="links">
+            <a href="https://github.com/plattnum/bulletd">GitHub</a>
+            <a href="https://github.com/plattnum/bulletd/releases">Releases</a>
+            <a href="https://www.buymeacoffee.com/plattnum">Buy Me a Coffee</a>
+            <a href="https://github.com/plattnum/bulletd/issues">Issues</a>
+        </div>
+        <p>MIT License &middot; Made by <a href="https://github.com/plattnum">plattnum</a></p>
+    </div>
+</footer>
+
+</body>
+</html>
