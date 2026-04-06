@@ -158,6 +158,59 @@ impl Store {
         Ok(updated)
     }
 
+    /// Append a note line to a bullet.
+    pub fn append_note(
+        &self,
+        date: NaiveDate,
+        id: &str,
+        note: String,
+    ) -> crate::error::Result<Bullet> {
+        let mut log = self.load_daily_log(date)?;
+
+        let bullet =
+            log.bullets
+                .iter_mut()
+                .find(|b| b.id == id)
+                .ok_or_else(|| Error::BulletNotFound {
+                    location: date.to_string(),
+                    id: id.to_string(),
+                })?;
+
+        bullet.notes.push(note);
+        let updated = bullet.clone();
+        self.save_daily_log(&log)?;
+        Ok(updated)
+    }
+
+    /// Replace all notes on a bullet.
+    pub fn update_notes(
+        &self,
+        date: NaiveDate,
+        id: &str,
+        notes: Vec<String>,
+    ) -> crate::error::Result<Bullet> {
+        let mut log = self.load_daily_log(date)?;
+
+        let bullet =
+            log.bullets
+                .iter_mut()
+                .find(|b| b.id == id)
+                .ok_or_else(|| Error::BulletNotFound {
+                    location: date.to_string(),
+                    id: id.to_string(),
+                })?;
+
+        bullet.notes = notes;
+        let updated = bullet.clone();
+        self.save_daily_log(&log)?;
+        Ok(updated)
+    }
+
+    /// Clear all notes from a bullet.
+    pub fn clear_notes(&self, date: NaiveDate, id: &str) -> crate::error::Result<Bullet> {
+        self.update_notes(date, id, vec![])
+    }
+
     /// Mark a task as done.
     pub fn complete_task(&self, date: NaiveDate, id: &str) -> crate::error::Result<Bullet> {
         self.set_task_status(date, id, BulletStatus::Done)
@@ -201,6 +254,33 @@ impl Store {
                 })?;
 
         let new_pos = (pos as i32 + delta).clamp(0, log.bullets.len() as i32 - 1) as usize;
+        if new_pos != pos {
+            let bullet = log.bullets.remove(pos);
+            log.bullets.insert(new_pos, bullet);
+            self.save_daily_log(&log)?;
+        }
+        Ok(())
+    }
+
+    /// Move a bullet to an absolute position in the list (0-indexed).
+    /// Clamps to valid range.
+    pub fn move_bullet_to(
+        &self,
+        date: NaiveDate,
+        id: &str,
+        target_pos: usize,
+    ) -> crate::error::Result<()> {
+        let mut log = self.load_daily_log(date)?;
+        let pos =
+            log.bullets
+                .iter()
+                .position(|b| b.id == id)
+                .ok_or_else(|| Error::BulletNotFound {
+                    location: date.to_string(),
+                    id: id.to_string(),
+                })?;
+
+        let new_pos = target_pos.min(log.bullets.len().saturating_sub(1));
         if new_pos != pos {
             let bullet = log.bullets.remove(pos);
             log.bullets.insert(new_pos, bullet);
@@ -605,7 +685,7 @@ mod tests {
 
         assert_eq!(bullet.status, BulletStatus::Open);
         assert_eq!(bullet.text, "Fix the bug");
-        assert_eq!(bullet.id.len(), 8);
+        assert_eq!(bullet.id.len(), 2);
 
         // Verify persisted
         let log = store.load_daily_log(date).unwrap();

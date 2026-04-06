@@ -286,11 +286,11 @@ mod tests {
     fn format_migration_to_date() {
         let mig_to = Some(MigrationTo {
             target_date: MigrationTarget::Date(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap()),
-            target_id: "d8f2a1b5".to_string(),
+            target_id: "d8".to_string(),
         });
         assert_eq!(
             format_migration(&mig_to, &None),
-            "[to 2026-04-06/d8f2a1b5](./2026-04-06.md)"
+            "[to 2026-04-06/d8](./2026-04-06.md)"
         );
     }
 
@@ -298,11 +298,11 @@ mod tests {
     fn format_migration_to_backlog() {
         let mig_to = Some(MigrationTo {
             target_date: MigrationTarget::Backlog,
-            target_id: "a3c7e9d1".to_string(),
+            target_id: "k2".to_string(),
         });
         assert_eq!(
             format_migration(&mig_to, &None),
-            "[to backlog/a3c7e9d1](./backlog.md)"
+            "[to backlog/k2](./backlog.md)"
         );
     }
 
@@ -310,11 +310,11 @@ mod tests {
     fn format_migration_from() {
         let mig_from = Some(MigrationFrom {
             source_date: NaiveDate::from_ymd_opt(2026, 4, 5).unwrap(),
-            source_id: "c5a1d9e7".to_string(),
+            source_id: "c5".to_string(),
         });
         assert_eq!(
             format_migration(&None, &mig_from),
-            "[from 2026-04-05/c5a1d9e7](./2026-04-05.md)"
+            "[from 2026-04-05/c5](./2026-04-05.md)"
         );
     }
 
@@ -326,7 +326,7 @@ mod tests {
         let log = DailyLog {
             date: NaiveDate::from_ymd_opt(2026, 4, 10).unwrap(),
             bullets: vec![Bullet {
-                id: "a1b2c3d4".to_string(),
+                id: "a1".to_string(),
                 status: BulletStatus::Open,
                 text: "Test bullet".to_string(),
                 notes: vec![],
@@ -368,7 +368,7 @@ mod tests {
         let log = DailyLog {
             date: NaiveDate::from_ymd_opt(2026, 4, 10).unwrap(),
             bullets: vec![Bullet {
-                id: "a1b2c3d4".to_string(),
+                id: "a1".to_string(),
                 status: BulletStatus::Open,
                 text: "Fix Foo | Bar".to_string(),
                 notes: vec!["Note with | pipe".to_string()],

@@ -42,6 +42,17 @@ impl BulletStatus {
         }
     }
 
+    /// Get the display icon for this status from config.
+    pub fn display_icon<'a>(&self, icons: &'a crate::config::IconsConfig) -> &'a str {
+        match self {
+            Self::Open => &icons.open,
+            Self::Done => &icons.done,
+            Self::Migrated => &icons.migrated,
+            Self::Cancelled => &icons.cancelled,
+            Self::Backlogged => &icons.backlogged,
+        }
+    }
+
     /// Display name for error messages.
     pub fn display_name(&self) -> &'static str {
         match self {

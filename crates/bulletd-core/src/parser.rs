@@ -445,7 +445,7 @@ mod tests {
         // First bullet: done task
         assert_eq!(log.bullets[0].status, BulletStatus::Done);
         assert_eq!(log.bullets[0].text, "Fix Android crash on startup");
-        assert_eq!(log.bullets[0].id, "a7f3b2c1");
+        assert_eq!(log.bullets[0].id, "a7");
         assert!(log.bullets[0].notes.is_empty());
         assert!(log.bullets[0].migrated_to.is_none() && log.bullets[0].migrated_from.is_none());
 
@@ -473,7 +473,7 @@ mod tests {
                     *target_date,
                     MigrationTarget::Date(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap())
                 );
-                assert_eq!(target_id, "d8f2a1b5");
+                assert_eq!(target_id, "d8");
             }
             other => panic!("expected MigrationTo, got {other:?}"),
         }
@@ -489,7 +489,7 @@ mod tests {
                 target_id,
             }) => {
                 assert_eq!(*target_date, MigrationTarget::Backlog);
-                assert_eq!(target_id, "a3c7e9d1");
+                assert_eq!(target_id, "k2");
             }
             other => panic!("expected MigrationTo(Backlog), got {other:?}"),
         }
@@ -518,7 +518,7 @@ mod tests {
                 source_id,
             }) => {
                 assert_eq!(*source_date, NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
-                assert_eq!(source_id, "c5a1d9e7");
+                assert_eq!(source_id, "c5");
             }
             other => panic!("expected MigrationFrom, got {other:?}"),
         }
@@ -537,7 +537,7 @@ mod tests {
                 source_id,
             }) => {
                 assert_eq!(*source_date, NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
-                assert_eq!(source_id, "a3c7e9d1");
+                assert_eq!(source_id, "k2");
             }
             other => panic!("expected MigrationFrom, got {other:?}"),
         }
@@ -580,7 +580,7 @@ mod tests {
 
 | Status | Bullet | ID |
 |--------|--------|----|
-| 📌 | Some task | abc12345 |
+| 📌 | Some task | a3 |
 "#;
         // 3 columns instead of 5 — should not parse as our table
         let log = parse_daily_log(content, Path::new("2026-04-07.md")).unwrap();
@@ -595,7 +595,7 @@ mod tests {
 
 | Status | Bullet | Notes | Migration | ID |
 |--------|--------|-------|-----------|-----|
-| 🦀 | Some task | | | abc12345 |
+| 🦀 | Some task | | | a3 |
 "#;
         let result = parse_daily_log(content, Path::new("2026-04-07.md"));
         assert!(matches!(result, Err(Error::UnknownStatusEmoji { .. })));
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn parse_migration_to_date() {
         let (migrated_to, migrated_from) =
-            parse_migration("[to 2026-04-06/d8f2a1b5](./2026-04-06.md)", 1).unwrap();
+            parse_migration("[to 2026-04-06/d8](./2026-04-06.md)", 1).unwrap();
         assert!(migrated_from.is_none());
         match migrated_to {
             Some(MigrationTo {
@@ -659,7 +659,7 @@ mod tests {
                     target_date,
                     MigrationTarget::Date(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap())
                 );
-                assert_eq!(target_id, "d8f2a1b5");
+                assert_eq!(target_id, "d8");
             }
             other => panic!("expected Some(MigrationTo), got {other:?}"),
         }
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn parse_migration_to_backlog() {
         let (migrated_to, migrated_from) =
-            parse_migration("[to backlog/a3c7e9d1](./backlog.md)", 1).unwrap();
+            parse_migration("[to backlog/k2](./backlog.md)", 1).unwrap();
         assert!(migrated_from.is_none());
         match migrated_to {
             Some(MigrationTo {
@@ -676,7 +676,7 @@ mod tests {
                 target_id,
             }) => {
                 assert_eq!(target_date, MigrationTarget::Backlog);
-                assert_eq!(target_id, "a3c7e9d1");
+                assert_eq!(target_id, "k2");
             }
             other => panic!("expected Some(MigrationTo(Backlog)), got {other:?}"),
         }
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn parse_migration_from() {
         let (migrated_to, migrated_from) =
-            parse_migration("[from 2026-04-05/c5a1d9e7](./2026-04-05.md)", 1).unwrap();
+            parse_migration("[from 2026-04-05/c5](./2026-04-05.md)", 1).unwrap();
         assert!(migrated_to.is_none());
         match migrated_from {
             Some(MigrationFrom {
@@ -693,7 +693,7 @@ mod tests {
                 source_id,
             }) => {
                 assert_eq!(source_date, NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
-                assert_eq!(source_id, "c5a1d9e7");
+                assert_eq!(source_id, "c5");
             }
             other => panic!("expected Some(MigrationFrom), got {other:?}"),
         }
@@ -767,7 +767,7 @@ mod tests {
                     *target_date,
                     MigrationTarget::Date(NaiveDate::from_ymd_opt(2026, 4, 7).unwrap())
                 );
-                assert_eq!(target_id, "b4e1c8a3");
+                assert_eq!(target_id, "m4");
             }
             other => panic!("expected MigrationTo, got {other:?}"),
         }
@@ -776,9 +776,9 @@ mod tests {
     #[test]
     fn split_row_no_trailing_pipe() {
         // GFM allows rows without trailing pipe
-        let cols = split_row("| ✅ | Some text | notes | | abc12345");
+        let cols = split_row("| ✅ | Some text | notes | | a3");
         assert_eq!(cols.len(), 5);
         assert_eq!(cols[0], "✅");
-        assert_eq!(cols[4], "abc12345");
+        assert_eq!(cols[4], "a3");
     }
 }

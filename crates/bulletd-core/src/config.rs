@@ -30,6 +30,43 @@ pub struct DisplayConfig {
     pub show_ids: bool,
 }
 
+/// Icon set for TUI status display.
+///
+/// Purely visual — the on-disk markdown format always uses the
+/// canonical emojis regardless of which icon set is active.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IconsConfig {
+    pub open: String,
+    pub done: String,
+    pub migrated: String,
+    pub cancelled: String,
+    pub backlogged: String,
+}
+
+impl IconsConfig {
+    /// Minimal TUI-friendly icons (single-width Unicode).
+    pub fn minimal() -> Self {
+        Self {
+            open: "○".to_string(),
+            done: "✓".to_string(),
+            migrated: "→".to_string(),
+            cancelled: "✗".to_string(),
+            backlogged: "▼".to_string(),
+        }
+    }
+
+    /// Original emoji icons (matches the on-disk format).
+    pub fn emoji() -> Self {
+        Self {
+            open: "📌".to_string(),
+            done: "✅".to_string(),
+            migrated: "➡️".to_string(),
+            cancelled: "❌".to_string(),
+            backlogged: "📥".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MigrationConfig {
     /// Days before a task is flagged as stale during review
