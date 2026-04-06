@@ -227,8 +227,8 @@ impl App {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('j') | KeyCode::Down => self.move_down(),
             KeyCode::Char('k') | KeyCode::Up => self.move_up(),
-            KeyCode::Char('[') => self.prev_day(),
-            KeyCode::Char(']') => self.next_day(),
+            KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('[') => self.prev_day(),
+            KeyCode::Char('l') | KeyCode::Right | KeyCode::Char(']') => self.next_day(),
             KeyCode::Char('a') => {
                 self.bullet_form = Some(BulletForm::new_add());
             }
@@ -662,7 +662,7 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " q:quit j/k:nav [/]:day a:add e:edit d:done p:reopen x:cancel D:del m:migrate b:backlog g:grab r:review o:open",
+            " q:quit hjkl:nav a:add e:edit d:done p:reopen x:cancel D:del m:migrate b:backlog g:grab r:review o:open",
         );
     }
 
