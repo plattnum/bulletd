@@ -1,4 +1,5 @@
 mod app;
+mod bullet_form;
 mod init;
 mod theme;
 
