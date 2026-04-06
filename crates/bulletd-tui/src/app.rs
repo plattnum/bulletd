@@ -251,7 +251,7 @@ impl App {
             KeyCode::Char('g') => self.start_grab(),
             KeyCode::Char('r') => self.enter_review_mode(),
             KeyCode::Char('o') => self.enter_open_tasks(),
-            KeyCode::Char('h') => self.enter_migration_history(),
+            KeyCode::Char('H') => self.enter_migration_history(),
             _ => {}
         }
     }
