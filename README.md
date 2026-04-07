@@ -197,3 +197,5 @@ The Bullet Journal method works because of friction. Migrating a task forces you
 ## Companion: wdttg
 
 bulletd pairs well with [wdttg](https://github.com/plattnum/wdttg-tui) (Where Did The Time Go?) — a terminal time tracker built on the same principles: local-first, plain Markdown, MCP-enabled. Together they cover the daily workflow: bulletd captures *what* you need to do, wdttg captures *how long* it took. Both run as MCP servers, so your AI agent can manage your task log and time entries in the same conversation.
+
+The reality of contract work is that every organization has its own tracking system — Jira, Linear, Asana, whatever — and MCP integrations to those services are either nonexistent or painfully slow. These tools let you stay in flow locally, then reconcile back to the client's system on your own schedule.
