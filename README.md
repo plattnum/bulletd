@@ -53,6 +53,10 @@ The main view is your daily log. Each bullet has a status:
 | Cancelled | Dropped |
 | Backlogged | Shelved for later |
 
+### Grouped View
+
+Press `g` to toggle grouped-by-status view. Bullets are partitioned into sections — Open, Done, Migrated, Cancelled, Backlogged — with headers showing the count for each group. Empty groups are hidden. The MCP API supports this too: pass `group_by: "status"` to `list_bullets` and the AI gets pre-grouped results without having to sort them itself.
+
 ### Keybindings
 
 | Key | Action |
@@ -152,7 +156,7 @@ Restart Claude Desktop after saving.
 |------|-------------|
 | **Bullets** | |
 | `add_bullet` | Add a bullet to a day's log |
-| `list_bullets` | List bullets for a date, optionally filtered by status |
+| `list_bullets` | List bullets for a date, filter by status or group_by="status" |
 | `list_open_bullets` | List all open bullets across recent days |
 | `update_bullet` | Update a bullet's text |
 | **Status** | |

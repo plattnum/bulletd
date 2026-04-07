@@ -439,6 +439,11 @@
                 <p>No auto-migration, no "snooze all" button. Every open bullet forces a choice: done, move, drop, or shelve. The friction is the feature.</p>
             </div>
             <div class="feature">
+                <div class="icon">&#128202;</div>
+                <h3>Grouped View</h3>
+                <p>Toggle grouped-by-status view with a single key. Bullets are partitioned into Open, Done, Migrated, Cancelled sections. The MCP API supports it too &mdash; the AI gets pre-grouped results.</p>
+            </div>
+            <div class="feature">
                 <div class="icon">&#128274;</div>
                 <h3>No Cloud Required</h3>
                 <p>Everything runs locally. Sync your data directory via git, Dropbox, or iCloud if you want. Your data stays yours.</p>
@@ -463,7 +468,7 @@
             <tbody>
                 <tr class="category"><td colspan="2">Bullets</td></tr>
                 <tr><td>add_bullet</td><td>Add a bullet to a day's log</td></tr>
-                <tr><td>list_bullets</td><td>List bullets for a date, optionally filtered by status</td></tr>
+                <tr><td>list_bullets</td><td>List bullets for a date, filter by status or group_by="status"</td></tr>
                 <tr><td>list_open_bullets</td><td>List all open bullets across recent days</td></tr>
                 <tr><td>update_bullet</td><td>Update a bullet's text</td></tr>
                 <tr class="category"><td colspan="2">Status</td></tr>
