@@ -16,7 +16,9 @@ I've kept a paper bullet journal for years to deal with my day to day work tasks
 
 The idea clicked when I saw the Task Tools in Claude's Cowork. An AI managing your daily log alongside you — that's what I wanted. I tried building it as a Claude Code plugin backed by Markdown files, but it was never fully deterministic. The AI has to read files into context, parse the format, and try to enforce schema rules with no guarantees. It mostly works, but it's fragile.
 
-So bulletd is my current answer: a local MCP server that owns the data format. Instead of reading and rewriting Markdown files, the AI calls typed tools — `add_bullet`, `complete_bullet`, `migrate_bullet` — and the server handles parsing, validation, and persistence. The AI doesn't need to think about file formats or worry about corrupting your data. It just translates what you say into API calls. Fast, local, deterministic, and correct by construction.
+So bulletd fills that gap for me: a local MCP server that owns the data format. Instead of reading and rewriting Markdown files, the AI calls typed tools — `add_bullet`, `complete_bullet`, `migrate_bullet` — and the server handles parsing, validation, and persistence. The AI doesn't need to think about file formats or worry about corrupting your data. It just translates what you say into API calls. Fast, local, deterministic, and correct by construction.
+
+Honestly, this probably has a shelf life. The moment AI agents can generate their own schemas and programmatic access on the fly — which Cowork and similar tools are inching toward — a hand-built MCP server for a bullet journal becomes redundant. But until that day, this works and it's fast.
 
 ## Install
 
