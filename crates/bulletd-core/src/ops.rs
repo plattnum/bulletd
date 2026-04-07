@@ -3,6 +3,7 @@
 //! All operations work through a `Store` that owns the data directory path
 //! and handles file I/O via the parser and serializer.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -596,6 +597,34 @@ impl Store {
             })
             .collect();
         Ok(filtered)
+    }
+
+    /// List bullets for a date grouped by status.
+    ///
+    /// Returns groups in fixed order: Open, Done, Migrated, Cancelled, Backlogged.
+    /// Empty groups are omitted. Bullets within each group retain their position order.
+    pub fn list_bullets_grouped(
+        &self,
+        date: NaiveDate,
+    ) -> crate::error::Result<Vec<(BulletStatus, Vec<Bullet>)>> {
+        use crate::model::STATUS_GROUP_ORDER;
+
+        let log = self.load_daily_log(date)?;
+        let mut groups: BTreeMap<u8, (BulletStatus, Vec<Bullet>)> = BTreeMap::new();
+
+        for bullet in log.bullets {
+            let order = STATUS_GROUP_ORDER
+                .iter()
+                .position(|s| *s == bullet.status)
+                .unwrap_or(4) as u8;
+            groups
+                .entry(order)
+                .or_insert_with(|| (bullet.status, Vec::new()))
+                .1
+                .push(bullet);
+        }
+
+        Ok(groups.into_values().collect())
     }
 
     /// Trace a bullet's migration chain.

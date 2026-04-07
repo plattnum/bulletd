@@ -84,6 +84,8 @@ pub struct App {
     bullet_form: Option<BulletForm>,
     /// Whether the help overlay is visible.
     show_help: bool,
+    /// Whether the daily log is grouped by status.
+    grouped: bool,
 }
 
 impl App {
@@ -106,6 +108,7 @@ impl App {
             status_message: None,
             bullet_form: None,
             show_help: false,
+            grouped: false,
         };
         app.reload_bullets();
         app
@@ -312,7 +315,18 @@ impl App {
             KeyCode::Char('m') => self.action_migrate(),
             KeyCode::Char('u') => self.action_unmigrate(),
             KeyCode::Char('b') => self.action_backlog(),
-            KeyCode::Enter => self.start_grab(),
+            KeyCode::Char('g') => {
+                self.grouped = !self.grouped;
+                self.status_message = Some(
+                    if self.grouped {
+                        "Grouped by status"
+                    } else {
+                        "Flat view"
+                    }
+                    .to_string(),
+                );
+            }
+            KeyCode::Enter if !self.grouped => self.start_grab(),
             KeyCode::Char('r') => self.enter_review_mode(),
             KeyCode::Char('O') => self.enter_open_tasks(),
             KeyCode::Char('H') => self.enter_migration_history(),
@@ -733,7 +747,7 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " q:quit hjkl:nav a:add e:edit d:done o:open x:cancel D:del m:migrate b:backlog enter:grab r:review O:all-open i:icons",
+            " q:quit hjkl:nav a:add e:edit d:done o:open x:cancel D:del m:migrate b:backlog enter:grab r:review O:all-open g:group i:icons",
         );
     }
 
@@ -1105,6 +1119,74 @@ impl App {
         frame.render_widget(header, area);
     }
 
+    fn render_bullet_line<'a>(
+        &self,
+        bullet: &'a Bullet,
+        bullet_idx: usize,
+        is_grab_mode: bool,
+        lines: &mut Vec<(usize, Line<'a>)>,
+    ) {
+        let is_selected = bullet_idx == self.selected;
+        let is_grabbed = is_selected && is_grab_mode;
+        let status_style = self.status_color(bullet.status);
+        let text_style = if is_selected {
+            Style::default()
+                .fg(self.theme.foreground)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(self.theme.foreground)
+        };
+        let select_indicator = if is_grabbed {
+            "≡ "
+        } else if is_selected {
+            "▸ "
+        } else {
+            "  "
+        };
+
+        let line_bg = if is_grabbed {
+            Style::default().bg(self.theme.accent)
+        } else {
+            Style::default()
+        };
+
+        let mut spans = vec![
+            Span::styled(select_indicator, Style::default().fg(self.theme.accent)),
+            Span::styled(
+                format!("{} ", self.status_icon(bullet.status)),
+                status_style,
+            ),
+        ];
+        spans.push(Span::styled(&bullet.text, text_style));
+        if self.config.display.show_ids {
+            spans.push(Span::styled(
+                format!(" ({})", bullet.id),
+                Style::default().fg(self.theme.muted),
+            ));
+        }
+        let mut main_line = Line::from(spans);
+        if is_grabbed {
+            main_line = main_line.style(line_bg);
+        }
+        lines.push((bullet_idx, main_line));
+
+        for note in &bullet.notes {
+            let mut note_line = Line::from(vec![
+                Span::styled("     ↳ ", Style::default().fg(self.theme.muted)),
+                Span::styled(
+                    note,
+                    Style::default()
+                        .fg(self.theme.muted)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ]);
+            if is_grabbed {
+                note_line = note_line.style(line_bg);
+            }
+            lines.push((bullet_idx, note_line));
+        }
+    }
+
     fn render_bullet_list(&self, frame: &mut ratatui::Frame, area: Rect) {
         if self.bullets.is_empty() {
             let empty = Paragraph::new(Line::from(Span::styled(
@@ -1118,66 +1200,45 @@ impl App {
         let is_grab_mode = matches!(self.mode, ViewMode::Grab(_));
 
         let mut lines: Vec<(usize, Line)> = Vec::new();
-        for (i, bullet) in self.bullets.iter().enumerate() {
-            let is_selected = i == self.selected;
-            let is_grabbed = is_selected && is_grab_mode;
-            let status_style = self.status_color(bullet.status);
-            let text_style = if is_selected {
-                Style::default()
-                    .fg(self.theme.foreground)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(self.theme.foreground)
-            };
-            let select_indicator = if is_grabbed {
-                "≡ "
-            } else if is_selected {
-                "▸ "
-            } else {
-                "  "
-            };
 
-            // Full-width background highlight when grabbed
-            let line_bg = if is_grabbed {
-                Style::default().bg(self.theme.accent)
-            } else {
-                Style::default()
-            };
+        if self.grouped {
+            use bulletd_core::model::STATUS_GROUP_ORDER;
 
-            let mut spans = vec![
-                Span::styled(select_indicator, Style::default().fg(self.theme.accent)),
-                Span::styled(
-                    format!("{} ", self.status_icon(bullet.status)),
-                    status_style,
-                ),
-            ];
-            spans.push(Span::styled(&bullet.text, text_style));
-            if self.config.display.show_ids {
-                spans.push(Span::styled(
-                    format!(" ({})", bullet.id),
-                    Style::default().fg(self.theme.muted),
-                ));
-            }
-            let mut main_line = Line::from(spans);
-            if is_grabbed {
-                main_line = main_line.style(line_bg);
-            }
-            lines.push((i, main_line));
+            for status in &STATUS_GROUP_ORDER {
+                let group_bullets: Vec<(usize, &Bullet)> = self
+                    .bullets
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, b)| b.status == *status)
+                    .collect();
 
-            for note in &bullet.notes {
-                let mut note_line = Line::from(vec![
-                    Span::styled("     ↳ ", Style::default().fg(self.theme.muted)),
-                    Span::styled(
-                        note,
-                        Style::default()
-                            .fg(self.theme.muted)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                ]);
-                if is_grabbed {
-                    note_line = note_line.style(line_bg);
+                if group_bullets.is_empty() {
+                    continue;
                 }
-                lines.push((i, note_line));
+
+                // Section header
+                let header_text = format!(
+                    "── {} ({}) ──",
+                    status.display_name().to_uppercase(),
+                    group_bullets.len()
+                );
+                lines.push((
+                    usize::MAX,
+                    Line::from(Span::styled(
+                        header_text,
+                        Style::default()
+                            .fg(self.theme.accent)
+                            .add_modifier(Modifier::BOLD),
+                    )),
+                ));
+
+                for (bullet_idx, bullet) in group_bullets {
+                    self.render_bullet_line(bullet, bullet_idx, is_grab_mode, &mut lines);
+                }
+            }
+        } else {
+            for (i, bullet) in self.bullets.iter().enumerate() {
+                self.render_bullet_line(bullet, i, is_grab_mode, &mut lines);
             }
         }
 

@@ -20,6 +20,8 @@ So bulletd is my current answer: a local MCP server that owns the data format. I
 
 ## Install
 
+Requires [Rust](https://rustup.rs/) 1.85+ (2024 edition).
+
 ```bash
 cargo install --path crates/bulletd-tui
 ```
@@ -70,6 +72,7 @@ The main view is your daily log. Each bullet has a status:
 | `r` | Review open tasks for this day |
 | `O` | View all open tasks across recent days |
 | `H` | Migration history for selected bullet |
+| `g` | Toggle grouped-by-status view |
 | `i` | Toggle icon style (minimal/emoji) |
 | `q` | Quit |
 

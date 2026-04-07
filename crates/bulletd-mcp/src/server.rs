@@ -73,7 +73,7 @@ impl BulletdMcpServer {
     }
 
     #[tool(
-        description = "List bullets for a date. Filter by status: open, done, migrated, cancelled, backlogged."
+        description = "List bullets for a date. Filter by status: open, done, migrated, cancelled, backlogged. Set group_by=\"status\" to get results grouped by status."
     )]
     fn list_bullets(&self, Parameters(params): Parameters<ListBulletsParams>) -> String {
         let date = match parse_optional_date(params.date.as_deref()) {
@@ -81,24 +81,28 @@ impl BulletdMcpServer {
             Err(e) => return json!({"error": e}).to_string(),
         };
 
+        if params.group_by.as_deref() == Some("status") {
+            return match self.state.store.list_bullets_grouped(date) {
+                Ok(groups) => {
+                    let mut grouped = json!({});
+                    let mut total = 0;
+                    for (status, bullets) in &groups {
+                        let items: Vec<_> = bullets.iter().map(bullet_to_json).collect();
+                        total += items.len();
+                        grouped[status.display_name()] = json!(items);
+                    }
+                    json!({"date": date.to_string(), "count": total, "grouped": grouped})
+                        .to_string()
+                }
+                Err(e) => json!({"error": e.to_string()}).to_string(),
+            };
+        }
+
         let status_filter = params.status.as_deref().and_then(parse_bullet_status);
 
         match self.state.store.list_bullets(date, status_filter) {
             Ok(bullets) => {
-                let items: Vec<_> = bullets
-                    .iter()
-                    .map(|b| {
-                        let mut entry = json!({
-                            "id": b.id,
-                            "status": b.status.display_name(),
-                            "text": b.text,
-                        });
-                        if !b.notes.is_empty() {
-                            entry["notes"] = json!(b.notes);
-                        }
-                        entry
-                    })
-                    .collect();
+                let items: Vec<_> = bullets.iter().map(bullet_to_json).collect();
                 json!({"date": date.to_string(), "count": items.len(), "bullets": items})
                     .to_string()
             }
@@ -391,6 +395,18 @@ impl BulletdMcpServer {
 }
 
 // -- Helpers --
+
+fn bullet_to_json(b: &bulletd_core::model::Bullet) -> serde_json::Value {
+    let mut entry = json!({
+        "id": b.id,
+        "status": b.status.display_name(),
+        "text": b.text,
+    });
+    if !b.notes.is_empty() {
+        entry["notes"] = json!(b.notes);
+    }
+    entry
+}
 
 fn parse_date(s: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| format!("invalid date: {s}"))

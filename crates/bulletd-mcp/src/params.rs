@@ -17,6 +17,8 @@ pub struct ListBulletsParams {
     pub date: Option<String>,
     /// Filter by status: "open", "done", "migrated", "cancelled", "backlogged"
     pub status: Option<String>,
+    /// Group results by "status". When set, returns grouped object instead of flat list.
+    pub group_by: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

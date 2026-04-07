@@ -1,5 +1,14 @@
 use chrono::NaiveDate;
 
+/// Fixed display ordering for grouped views: Open, Done, Migrated, Cancelled, Backlogged.
+pub const STATUS_GROUP_ORDER: [BulletStatus; 5] = [
+    BulletStatus::Open,
+    BulletStatus::Done,
+    BulletStatus::Migrated,
+    BulletStatus::Cancelled,
+    BulletStatus::Backlogged,
+];
+
 /// The status marker for a bullet, represented as a single emoji.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BulletStatus {
