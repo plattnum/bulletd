@@ -2,6 +2,7 @@
 name = "bulletd-tui"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/plattnum/bulletd"
 
 [[bin]]
 name = "bulletd"

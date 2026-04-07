@@ -24,7 +24,11 @@ Honestly, this probably has a shelf life. The moment AI agents can generate thei
 
 ## Install
 
-Requires [Rust](https://rustup.rs/) 1.85+ (2024 edition).
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/plattnum/bulletd/releases/latest/download/bulletd-tui-installer.sh | sh
+```
+
+Or build from source (requires [Rust](https://rustup.rs/) 1.85+):
 
 ```bash
 cargo install --path crates/bulletd-tui
