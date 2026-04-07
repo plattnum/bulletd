@@ -193,3 +193,7 @@ This opens a web UI (usually `http://localhost:6274`) where you can browse avail
 ## Philosophy
 
 The Bullet Journal method works because of friction. Migrating a task forces you to decide if it's still worth doing. Tasks that aren't worth rewriting die naturally. bulletd preserves that friction digitally — there's no "snooze all" button, no auto-migration. Every open bullet asks you to make a choice.
+
+## Companion: wdttg
+
+bulletd pairs well with [wdttg](https://github.com/plattnum/wdttg-tui) (Where Did The Time Go?) — a terminal time tracker built on the same principles: local-first, plain Markdown, MCP-enabled. Together they cover the daily workflow: bulletd captures *what* you need to do, wdttg captures *how long* it took. Both run as MCP servers, so your AI agent can manage your task log and time entries in the same conversation.
