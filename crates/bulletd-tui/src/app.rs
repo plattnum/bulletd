@@ -1116,10 +1116,11 @@ impl App {
     fn render_header(&self, frame: &mut ratatui::Frame, area: Rect) {
         let today = Local::now().date_naive();
         let date_str = self.current_date.format("%Y-%m-%d").to_string();
+        let weekday = self.current_date.format("%A").to_string();
         let day_label = if self.current_date == today {
-            format!("{date_str} (today)")
+            format!("{date_str} {weekday} (today)")
         } else {
-            date_str
+            format!("{date_str} {weekday}")
         };
 
         let header = Paragraph::new(Line::from(vec![
