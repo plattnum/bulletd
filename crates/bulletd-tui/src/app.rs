@@ -395,14 +395,46 @@ impl App {
 
     // -- Navigation --
 
+    /// Returns bullet indices in grouped display order (by status group, preserving
+    /// intra-group file order). Used so that j/k navigate visually in grouped view.
+    fn grouped_indices(&self) -> Vec<usize> {
+        use bulletd_core::model::STATUS_GROUP_ORDER;
+        let mut indices = Vec::with_capacity(self.bullets.len());
+        for status in &STATUS_GROUP_ORDER {
+            for (i, b) in self.bullets.iter().enumerate() {
+                if b.status == *status {
+                    indices.push(i);
+                }
+            }
+        }
+        indices
+    }
+
     fn move_down(&mut self) {
-        if !self.bullets.is_empty() && self.selected < self.bullets.len() - 1 {
+        if self.bullets.is_empty() {
+            return;
+        }
+        if self.grouped {
+            let order = self.grouped_indices();
+            if let Some(pos) = order.iter().position(|&i| i == self.selected) {
+                if pos + 1 < order.len() {
+                    self.selected = order[pos + 1];
+                }
+            }
+        } else if self.selected < self.bullets.len() - 1 {
             self.selected += 1;
         }
     }
 
     fn move_up(&mut self) {
-        if self.selected > 0 {
+        if self.grouped {
+            let order = self.grouped_indices();
+            if let Some(pos) = order.iter().position(|&i| i == self.selected) {
+                if pos > 0 {
+                    self.selected = order[pos - 1];
+                }
+            }
+        } else if self.selected > 0 {
             self.selected -= 1;
         }
     }
