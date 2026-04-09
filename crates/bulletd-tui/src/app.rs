@@ -855,21 +855,28 @@ impl App {
         // Current task
         if let Some(id) = task_ids.get(current) {
             if let Some(bullet) = self.bullets.iter().find(|b| b.id == *id) {
+                let mut review_spans = vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(
+                        format!("{} ", self.status_icon(bullet.status)),
+                        self.status_color(bullet.status),
+                    ),
+                    Span::styled(
+                        &bullet.text,
+                        Style::default()
+                            .fg(self.theme.foreground)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ];
+                if self.config.display.show_ids {
+                    review_spans.push(Span::styled(
+                        format!(" ({})", bullet.id),
+                        Style::default().fg(self.theme.muted),
+                    ));
+                }
                 let mut lines = vec![
                     Line::from(""),
-                    Line::from(vec![
-                        Span::styled("  ", Style::default()),
-                        Span::styled(
-                            format!("{} ", self.status_icon(bullet.status)),
-                            self.status_color(bullet.status),
-                        ),
-                        Span::styled(
-                            &bullet.text,
-                            Style::default()
-                                .fg(self.theme.foreground)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]),
+                    Line::from(review_spans),
                 ];
                 for note in &bullet.notes {
                     lines.push(Line::from(vec![
@@ -973,7 +980,7 @@ impl App {
             } else {
                 Style::default().fg(self.theme.foreground)
             };
-            lines.push(Line::from(vec![
+            let mut task_spans = vec![
                 Span::styled(
                     format!("    {indicator}"),
                     Style::default().fg(self.theme.accent),
@@ -983,7 +990,14 @@ impl App {
                     self.status_color(bullet.status),
                 ),
                 Span::styled(&bullet.text, text_style),
-            ]));
+            ];
+            if self.config.display.show_ids {
+                task_spans.push(Span::styled(
+                    format!(" ({})", bullet.id),
+                    Style::default().fg(self.theme.muted),
+                ));
+            }
+            lines.push(Line::from(task_spans));
         }
 
         let paragraph = Paragraph::new(lines);
@@ -1025,11 +1039,11 @@ impl App {
 
         // Timeline display
         let mut lines: Vec<Line> = vec![Line::from("")];
-        for (i, (date, _id, status, _text)) in chain.iter().enumerate() {
+        for (i, (date, id, status, _text)) in chain.iter().enumerate() {
             let is_last = i == chain.len() - 1;
             let connector = if is_last { "  └─ " } else { "  ├─ " };
 
-            lines.push(Line::from(vec![
+            let mut entry_spans = vec![
                 Span::styled(connector, Style::default().fg(self.theme.muted)),
                 Span::styled(
                     format!("{} ", self.status_icon(*status)),
@@ -1043,7 +1057,14 @@ impl App {
                     format!("  {}", status.display_name()),
                     Style::default().fg(self.theme.muted),
                 ),
-            ]));
+            ];
+            if self.config.display.show_ids {
+                entry_spans.push(Span::styled(
+                    format!("  ({})", id),
+                    Style::default().fg(self.theme.muted),
+                ));
+            }
+            lines.push(Line::from(entry_spans));
 
             // Add a vertical connector line between entries (except after last)
             if !is_last {
