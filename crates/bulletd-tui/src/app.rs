@@ -416,10 +416,10 @@ impl App {
         }
         if self.grouped {
             let order = self.grouped_indices();
-            if let Some(pos) = order.iter().position(|&i| i == self.selected) {
-                if pos + 1 < order.len() {
-                    self.selected = order[pos + 1];
-                }
+            if let Some(pos) = order.iter().position(|&i| i == self.selected)
+                && pos + 1 < order.len()
+            {
+                self.selected = order[pos + 1];
             }
         } else if self.selected < self.bullets.len() - 1 {
             self.selected += 1;
@@ -429,10 +429,10 @@ impl App {
     fn move_up(&mut self) {
         if self.grouped {
             let order = self.grouped_indices();
-            if let Some(pos) = order.iter().position(|&i| i == self.selected) {
-                if pos > 0 {
-                    self.selected = order[pos - 1];
-                }
+            if let Some(pos) = order.iter().position(|&i| i == self.selected)
+                && pos > 0
+            {
+                self.selected = order[pos - 1];
             }
         } else if self.selected > 0 {
             self.selected -= 1;
