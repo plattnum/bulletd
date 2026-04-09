@@ -874,10 +874,7 @@ impl App {
                         Style::default().fg(self.theme.muted),
                     ));
                 }
-                let mut lines = vec![
-                    Line::from(""),
-                    Line::from(review_spans),
-                ];
+                let mut lines = vec![Line::from(""), Line::from(review_spans)];
                 for note in &bullet.notes {
                     lines.push(Line::from(vec![
                         Span::raw("      "),

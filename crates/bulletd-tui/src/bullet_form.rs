@@ -285,10 +285,7 @@ impl BulletForm {
             format!(" {visible}")
         };
 
-        frame.render_widget(
-            Paragraph::new(Span::styled(display, text_style)),
-            chunks[1],
-        );
+        frame.render_widget(Paragraph::new(Span::styled(display, text_style)), chunks[1]);
 
         // Notes label
         let notes_label_style = if self.focused == FormField::Notes {
