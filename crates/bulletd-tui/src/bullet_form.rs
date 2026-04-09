@@ -29,6 +29,8 @@ pub struct BulletForm {
     pub mode: FormMode,
     /// Single-line bullet text.
     text_buffer: String,
+    /// Cursor position within text_buffer (byte offset).
+    cursor_pos: usize,
     /// Multi-line notes textarea.
     notes: TextArea<'static>,
     /// Which field is focused.
@@ -59,6 +61,7 @@ impl BulletForm {
         Self {
             mode: FormMode::Add,
             text_buffer: String::new(),
+            cursor_pos: 0,
             notes,
             focused: FormField::Text,
             submitted: false,
@@ -76,9 +79,11 @@ impl BulletForm {
         );
         notes.set_cursor_line_style(Style::default());
         notes.set_cursor_style(Style::default().add_modifier(Modifier::REVERSED));
+        let cursor_pos = text.len();
         Self {
             mode: FormMode::Edit { bullet_id },
             text_buffer: text.to_string(),
+            cursor_pos,
             notes,
             focused: FormField::Text,
             submitted: false,
@@ -126,11 +131,55 @@ impl BulletForm {
         match self.focused {
             FormField::Text => match code {
                 KeyCode::Char(c) => {
-                    self.text_buffer.push(c);
+                    self.text_buffer.insert(self.cursor_pos, c);
+                    self.cursor_pos += c.len_utf8();
                     true
                 }
                 KeyCode::Backspace => {
-                    self.text_buffer.pop();
+                    if self.cursor_pos > 0 {
+                        // Find the previous char boundary
+                        let prev = self.text_buffer[..self.cursor_pos]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                        self.text_buffer.remove(prev);
+                        self.cursor_pos = prev;
+                    }
+                    true
+                }
+                KeyCode::Delete => {
+                    if self.cursor_pos < self.text_buffer.len() {
+                        self.text_buffer.remove(self.cursor_pos);
+                    }
+                    true
+                }
+                KeyCode::Left => {
+                    if self.cursor_pos > 0 {
+                        self.cursor_pos = self.text_buffer[..self.cursor_pos]
+                            .char_indices()
+                            .next_back()
+                            .map(|(i, _)| i)
+                            .unwrap_or(0);
+                    }
+                    true
+                }
+                KeyCode::Right => {
+                    if self.cursor_pos < self.text_buffer.len() {
+                        self.cursor_pos = self.text_buffer[self.cursor_pos..]
+                            .char_indices()
+                            .nth(1)
+                            .map(|(i, _)| self.cursor_pos + i)
+                            .unwrap_or(self.text_buffer.len());
+                    }
+                    true
+                }
+                KeyCode::Home => {
+                    self.cursor_pos = 0;
+                    true
+                }
+                KeyCode::End => {
+                    self.cursor_pos = self.text_buffer.len();
                     true
                 }
                 _ => false,
@@ -146,8 +195,9 @@ impl BulletForm {
 
     /// Render the popup form.
     pub fn render(&mut self, frame: &mut ratatui::Frame, area: Rect, theme: &Theme) {
-        // Calculate popup size — centered, reasonable width
-        let width = 60.min(area.width.saturating_sub(4));
+        // Calculate popup size — centered, use 80% of terminal width (min 60)
+        let ideal_width = area.width * 80 / 100;
+        let width = ideal_width.max(60).min(area.width.saturating_sub(4));
         let height = 14.min(area.height.saturating_sub(4));
         let x = (area.width.saturating_sub(width)) / 2;
         let y = (area.height.saturating_sub(height)) / 2;
@@ -199,22 +249,44 @@ impl BulletForm {
             chunks[0],
         );
 
-        // Text input
+        // Text input with horizontal scrolling
         let text_style = if self.focused == FormField::Text {
             Style::default().fg(theme.foreground).bg(theme.muted)
         } else {
             Style::default().fg(theme.foreground)
         };
-        let cursor = if self.focused == FormField::Text {
-            "▏"
+
+        // Available width for text (1 char padding on left)
+        let input_width = chunks[1].width.saturating_sub(2) as usize; // 1 pad + 1 cursor
+
+        // Count character position of cursor for display
+        let cursor_char_pos = self.text_buffer[..self.cursor_pos].chars().count();
+        let total_chars = self.text_buffer.chars().count();
+
+        // Calculate scroll offset to keep cursor visible
+        let scroll_offset = if input_width == 0 {
+            0
+        } else if cursor_char_pos >= input_width {
+            cursor_char_pos - input_width + 1
         } else {
-            ""
+            0
         };
+
+        // Build visible text with cursor
+        let chars: Vec<char> = self.text_buffer.chars().collect();
+        let visible_end = total_chars.min(scroll_offset + input_width);
+        let before_cursor: String = chars[scroll_offset..cursor_char_pos].iter().collect();
+        let after_cursor: String = chars[cursor_char_pos..visible_end].iter().collect();
+
+        let display = if self.focused == FormField::Text {
+            format!(" {before_cursor}▏{after_cursor}")
+        } else {
+            let visible: String = chars[scroll_offset..visible_end].iter().collect();
+            format!(" {visible}")
+        };
+
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                format!(" {}{cursor}", self.text_buffer),
-                text_style,
-            )),
+            Paragraph::new(Span::styled(display, text_style)),
             chunks[1],
         );
 
