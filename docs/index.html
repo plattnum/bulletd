@@ -13,16 +13,21 @@
     <meta property="og:description" content="Talk to your journal. A terminal bullet journal with an MCP server for AI agents. Plain markdown, no cloud, no bloat.">
     <meta property="og:url" content="https://plattnum.github.io/bulletd">
     <meta property="og:type" content="website">
+    <meta property="og:image" content="https://plattnum.github.io/bulletd/images/logo.jpg">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://plattnum.github.io/bulletd/images/logo.jpg">
 
 <style>
         :root {
-            --bg: #0d1117;
-            --surface: #161b22;
-            --border: #30363d;
+            --bg: #12100d;
+            --surface: #1a1612;
+            --border: #2e2925;
             --fg: #e6edf3;
             --muted: #8b949e;
             --accent: #58a6ff;
             --accent-dim: #1f6feb;
+            --brass: #d4a257;
+            --brass-deep: #b3863d;
             --success: #3fb950;
             --warning: #d29922;
             --purple: #bc8cff;
@@ -61,28 +66,39 @@
             font-weight: 700;
             color: var(--fg);
         }
-        nav .logo span { color: var(--accent); }
+        nav .logo span { color: var(--brass); }
         nav .links { display: flex; gap: 24px; }
         nav .links a { color: var(--muted); font-size: 0.9rem; }
         nav .links a:hover { color: var(--fg); text-decoration: none; }
 
         /* Hero */
         .hero {
-            padding: 80px 0 40px;
+            padding: 40px 0 40px;
             text-align: center;
         }
         .hero h1 {
-            font-size: 3rem;
-            font-weight: 800;
-            margin-bottom: 16px;
-            letter-spacing: -0.02em;
+            position: absolute;
+            width: 1px; height: 1px;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
         }
-        .hero h1 span { color: var(--accent); }
+        .hero .logo-art {
+            display: block;
+            max-width: 420px;
+            width: 100%;
+            height: auto;
+            margin: 0 auto 24px;
+            -webkit-mask-image: radial-gradient(ellipse at center, #000 55%, transparent 95%);
+                    mask-image: radial-gradient(ellipse at center, #000 55%, transparent 95%);
+        }
         .hero .tagline {
             font-size: 1.25rem;
             color: var(--muted);
             max-width: 640px;
             margin: 0 auto 32px;
+        }
+        @media (max-width: 600px) {
+            .hero .logo-art { max-width: 280px; }
         }
         .hero .cta {
             display: inline-flex;
@@ -100,8 +116,9 @@
         }
         .btn:hover { text-decoration: none; opacity: 0.9; }
         .btn-primary {
-            background: var(--accent-dim);
-            color: #fff;
+            background: var(--brass);
+            color: #1a1208;
+            box-shadow: 0 1px 0 rgba(255, 220, 160, 0.25) inset, 0 4px 14px rgba(180, 130, 50, 0.25);
         }
         .btn-secondary {
             background: var(--surface);
@@ -378,7 +395,11 @@
 
 <section class="hero">
     <div class="container">
-        <h1><span>bullet</span>d</h1>
+        <picture>
+            <source srcset="images/logo.webp" type="image/webp">
+            <img src="images/logo.jpg" alt="bulletD" class="logo-art" width="1200" height="1800" loading="eager" decoding="async">
+        </picture>
+        <h1>bulletd</h1>
         <p class="tagline">
             A highly opinionated digital bullet journal for the terminal. Talk to your journal through AI, or use the TUI. One markdown file per day. No cloud, no bloat.
         </p>
