@@ -237,6 +237,91 @@
             font-size: 0.9rem;
         }
 
+        /* Day flow */
+        .flow {
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+        }
+        .flow h2 {
+            font-size: 2rem;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .flow .subtitle {
+            text-align: center;
+            color: var(--muted);
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+        .flow-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+        .day {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .day--present {
+            border-color: var(--brass);
+            box-shadow: 0 0 0 1px var(--brass) inset, 0 8px 24px rgba(180, 130, 50, 0.12);
+        }
+        .day header {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px dashed var(--border);
+        }
+        .day-label {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--muted);
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+        .day--present .day-label { color: var(--brass); }
+        .day-sub {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 2px;
+        }
+        .day ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .day li {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            flex-wrap: wrap;
+        }
+        .day li .icon { flex-shrink: 0; }
+        .day li.migrated {
+            padding-left: 10px;
+            border-left: 2px solid var(--brass);
+        }
+        .chip {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 1px 8px;
+            border-radius: 999px;
+            background: rgba(212, 162, 87, 0.12);
+            color: var(--brass);
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            white-space: nowrap;
+        }
+        @media (max-width: 720px) {
+            .flow-grid { grid-template-columns: 1fr; }
+        }
+
         /* MCP Tools */
         .mcp-tools {
             padding: 60px 0;
@@ -484,6 +569,65 @@
                 <h3>Fast</h3>
                 <p>Built in Rust. Starts instantly, lightweight, and responsive. The MCP server responds in milliseconds, not seconds.</p>
             </div>
+        </div>
+    </div>
+</section>
+
+<section class="flow">
+    <div class="container">
+        <h2>How a day flows</h2>
+        <p class="subtitle">Bullets don't auto-carry. Every open bullet forces a choice: complete it, migrate it forward, or drop it.</p>
+        <div class="flow-grid">
+            <article class="day day--past">
+                <header>
+                    <span class="day-label">Yesterday</span>
+                    <span class="day-sub">closed out</span>
+                </header>
+                <ul>
+                    <li><span class="icon">&#9989;</span> Ship wdttg 0.3</li>
+                    <li><span class="icon">&#10060;</span> Rewrite auth middleware</li>
+                    <li class="migrated">
+                        <span class="icon">&#10145;&#65039;</span>
+                        <span>Respond to design review</span>
+                        <span class="chip">&rarr; today</span>
+                    </li>
+                </ul>
+            </article>
+            <article class="day day--present">
+                <header>
+                    <span class="day-label">Today</span>
+                    <span class="day-sub">in progress</span>
+                </header>
+                <ul>
+                    <li class="migrated">
+                        <span class="icon">&#128204;</span>
+                        <span>Respond to design review</span>
+                        <span class="chip">&larr; yesterday</span>
+                    </li>
+                    <li><span class="icon">&#9989;</span> Triage inbox</li>
+                    <li><span class="icon">&#128204;</span> Draft Q2 OKRs</li>
+                    <li class="migrated">
+                        <span class="icon">&#10145;&#65039;</span>
+                        <span>Debug p99 latency spike</span>
+                        <span class="chip">&rarr; tomorrow</span>
+                    </li>
+                </ul>
+            </article>
+            <article class="day day--future">
+                <header>
+                    <span class="day-label">Tomorrow</span>
+                    <span class="day-sub">planned</span>
+                </header>
+                <ul>
+                    <li class="migrated">
+                        <span class="icon">&#128204;</span>
+                        <span>Debug p99 latency spike</span>
+                        <span class="chip">&larr; today</span>
+                    </li>
+                    <li><span class="icon">&#128204;</span> 1:1 with Sam</li>
+                    <li><span class="icon">&#128204;</span> Review RFC draft</li>
+                </ul>
+            </article>
         </div>
     </div>
 </section>
