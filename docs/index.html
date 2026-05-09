@@ -203,6 +203,64 @@
             color: var(--fg);
         }
 
+        /* What's new */
+        .whats-new {
+            padding: 40px 0 20px;
+        }
+        .whats-new .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--brass);
+            border-radius: 8px;
+            padding: 20px 24px;
+        }
+        .whats-new .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .whats-new .header h2 {
+            font-size: 1.05rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .whats-new .badge {
+            display: inline-block;
+            background: var(--accent-dim);
+            color: var(--fg);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .whats-new ul {
+            margin: 0 0 12px 1.2rem;
+            color: var(--muted);
+            font-size: 0.92rem;
+        }
+        .whats-new ul li { margin-bottom: 6px; }
+        .whats-new ul li strong { color: var(--fg); }
+        .whats-new ul li code {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85em;
+            color: var(--purple);
+        }
+        .whats-new .release-link {
+            font-size: 0.85rem;
+            color: var(--accent);
+            white-space: nowrap;
+        }
+
         /* Features */
         .features {
             padding: 60px 0;
@@ -514,6 +572,23 @@
             <img src="images/main-screen-grouping-view.png" alt="bulletd TUI with grouped-by-status view">
             <figcaption>Grouped-by-status view</figcaption>
         </figure>
+    </div>
+</section>
+
+<section class="whats-new">
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h2><span class="badge">v0.3.0</span> What's new</h2>
+                <a class="release-link" href="https://github.com/plattnum/bulletd/releases/tag/v0.3.0">View release →</a>
+            </div>
+            <ul>
+                <li><strong>Work-day-aware migration.</strong> <code>m</code> now migrates to the next <em>configured</em> work day instead of the next calendar day. Set <code>work_days</code> in <code>~/.config/bulletd/config.toml</code> — defaults to Mon–Fri, supports irregular schedules like <code>["Mon", "Thu", "Fri"]</code>. The MCP <code>migrate_bullet</code> tool follows the same policy.</li>
+                <li><strong>Migrate picker.</strong> Press <code>M</code> (shift-m) on a bullet to open a 30-entry modal of upcoming work days and pick exactly when it should land.</li>
+                <li><strong>Target shown inline.</strong> Migrated bullets render their destination next to the text — <code>→ Tue 2026-05-12</code> — and the edit modal title shows the bullet id and migration target.</li>
+                <li><strong>Forward and back nav.</strong> <code>f</code> follows a migration forward to the target day; <code>b</code> jumps back to the source day. (<code>b</code>'s previous "move to backlog" action has been removed from the TUI keybinds; the MCP <code>backlog_bullet</code> tool is unchanged.)</li>
+            </ul>
+        </div>
     </div>
 </section>
 
