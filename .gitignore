@@ -16,3 +16,6 @@ Thumbs.db
 
 # Environment
 .env
+
+# Workspace (separate git repo for docs, notes, scratchpad)
+/workspace-bulletd/
