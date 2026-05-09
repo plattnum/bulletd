@@ -30,7 +30,7 @@ bulletd is a digital bullet journal. A bullet is a single line entry in a daily 
 with a status (open, done, migrated, cancelled, backlogged) and optional context notes. \
 Daily logs are stored as markdown files, one per day. \
 The typical workflow: add bullets throughout the day, then review what's still open \
-and decide to complete, cancel, migrate to tomorrow, or shelve to the backlog. \
+and decide to complete, cancel, migrate to the next work day, or shelve to the backlog. \
 Use list_bullets with status=open to review a day. \
 Dates are always YYYY-MM-DD. Bullet IDs are short (letter + digit, e.g. \"a3\"). \
 When displaying bullets to the user, put the ID at the end in parentheses, e.g.: \
@@ -221,7 +221,9 @@ impl BulletdMcpServer {
         }
     }
 
-    #[tool(description = "Migrate a bullet to another day. Defaults to tomorrow.")]
+    #[tool(
+        description = "Migrate a bullet to another day. Defaults to the next configured work day."
+    )]
     fn migrate_bullet(&self, Parameters(params): Parameters<MigrateBulletParams>) -> String {
         let date = match parse_date(&params.date) {
             Ok(d) => d,
@@ -230,20 +232,23 @@ impl BulletdMcpServer {
 
         let target = match params.target_date.as_deref() {
             Some(s) => match parse_date(s) {
-                Ok(d) => Some(d),
+                Ok(d) => d,
                 Err(e) => return json!({"error": e}).to_string(),
             },
-            None => None,
+            None => {
+                bulletd_core::work_day::next_work_day(date, &self.state.config.migration.work_days)
+            }
         };
 
-        match self.state.store.migrate_task(date, &params.id, target) {
+        match self
+            .state
+            .store
+            .migrate_task(date, &params.id, Some(target))
+        {
             Ok((_, target_bullet)) => json!({
                 "ok": true,
                 "target_id": target_bullet.id,
-                "target_date": target.map_or_else(
-                    || (date.succ_opt().unwrap_or(date)).to_string(),
-                    |d| d.to_string()
-                ),
+                "target_date": target.to_string(),
             })
             .to_string(),
             Err(e) => json!({"error": e.to_string()}).to_string(),

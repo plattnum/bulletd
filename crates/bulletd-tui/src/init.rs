@@ -3,7 +3,7 @@ use std::io::{self, Write};
 
 use bulletd_core::config::{
     Config, DisplayConfig, GeneralConfig, MigrationConfig, ThemeConfig, config_path,
-    resolve_data_dir, serialize_config,
+    default_work_days, resolve_data_dir, serialize_config,
 };
 use color_eyre::eyre::{Result, bail};
 
@@ -54,7 +54,10 @@ pub fn run_init() -> Result<()> {
             date_format: "%Y-%m-%d".to_string(),
             show_ids: false,
         },
-        migration: MigrationConfig { stale_threshold: 3 },
+        migration: MigrationConfig {
+            stale_threshold: 3,
+            work_days: default_work_days(),
+        },
         theme: default_theme(),
     };
 

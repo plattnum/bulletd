@@ -21,10 +21,11 @@ use ratatui::widgets::{
 
 use bulletd_core::config::Config;
 use bulletd_core::config::IconsConfig;
-use bulletd_core::model::{Bullet, BulletStatus};
+use bulletd_core::model::{Bullet, BulletStatus, MigrationTarget};
 use bulletd_core::ops::Store;
 
 use crate::bullet_form::{BulletForm, FormMode};
+use crate::migrate_picker::MigratePicker;
 use crate::theme::Theme;
 
 /// State for grab-and-move mode.
@@ -82,6 +83,8 @@ pub struct App {
     status_message: Option<String>,
     /// Popup form for adding/editing bullets.
     bullet_form: Option<BulletForm>,
+    /// Modal picker for choosing a migrate target work day.
+    migrate_picker: Option<MigratePicker>,
     /// Whether the help overlay is visible.
     show_help: bool,
     /// Whether the daily log is grouped by status.
@@ -107,6 +110,7 @@ impl App {
             selected: 0,
             status_message: None,
             bullet_form: None,
+            migrate_picker: None,
             show_help: false,
             grouped: false,
         };
@@ -211,6 +215,12 @@ impl App {
     // -- Key handling --
 
     fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) {
+        // If the migrate picker is open, delegate to it first
+        if self.migrate_picker.is_some() {
+            self.handle_key_migrate_picker(key);
+            return;
+        }
+
         // If a bullet form is open, delegate all keys to it
         if let Some(ref mut form) = self.bullet_form {
             form.handle_key(key, modifiers);
@@ -235,7 +245,7 @@ impl App {
                             Err(e) => self.status_message = Some(format!("Error: {e}")),
                         }
                     }
-                    FormMode::Edit { bullet_id } => {
+                    FormMode::Edit { bullet_id, .. } => {
                         let id = bullet_id.clone();
                         let notes = if result.notes.is_empty() {
                             None
@@ -301,10 +311,18 @@ impl App {
             }
             KeyCode::Char('e') => {
                 if let Some(bullet) = self.bullets.get(self.selected) {
+                    let migration_label =
+                        bullet.migrated_to.as_ref().map(|m| match m.target_date {
+                            MigrationTarget::Date(d) => {
+                                format!("→ {} {}", d.format("%a"), d.format("%Y-%m-%d"))
+                            }
+                            MigrationTarget::Backlog => "→ backlog".to_string(),
+                        });
                     self.bullet_form = Some(BulletForm::new_edit(
                         bullet.id.clone(),
                         &bullet.text,
                         &bullet.notes,
+                        migration_label,
                     ));
                 }
             }
@@ -313,8 +331,10 @@ impl App {
             KeyCode::Char('x') => self.action_cancel(),
             KeyCode::Char('D') | KeyCode::Delete => self.action_delete(),
             KeyCode::Char('m') => self.action_migrate(),
+            KeyCode::Char('M') => self.action_open_migrate_picker(),
+            KeyCode::Char('f') => self.action_follow_migration(),
             KeyCode::Char('u') => self.action_unmigrate(),
-            KeyCode::Char('b') => self.action_backlog(),
+            KeyCode::Char('b') => self.action_back(),
             KeyCode::Char('g') => {
                 self.grouped = !self.grouped;
                 self.status_message = Some(
@@ -340,7 +360,6 @@ impl App {
             KeyCode::Char('d') => self.review_action(BulletStatus::Done),
             KeyCode::Char('x') => self.review_action(BulletStatus::Cancelled),
             KeyCode::Char('m') => self.review_migrate(),
-            KeyCode::Char('b') => self.review_backlog(),
             KeyCode::Esc => {
                 self.mode = ViewMode::DailyLog;
                 self.reload_bullets();
@@ -495,10 +514,77 @@ impl App {
 
     fn action_migrate(&mut self) {
         if let Some(id) = self.selected_bullet_id().map(|s| s.to_string()) {
-            let target_date = self.current_date.succ_opt().unwrap_or(self.current_date);
+            let target_date = bulletd_core::work_day::next_work_day(
+                self.current_date,
+                &self.config.migration.work_days,
+            );
             match self
                 .store
                 .migrate_task(self.current_date, &id, Some(target_date))
+            {
+                Ok((_, target)) => {
+                    self.status_message =
+                        Some(format!("Migrated to {target_date} ({})", target.id));
+                    self.reload_bullets();
+                }
+                Err(e) => self.status_message = Some(format!("Error: {e}")),
+            }
+        }
+    }
+
+    fn action_follow_migration(&mut self) {
+        let Some(bullet) = self.bullets.get(self.selected) else {
+            return;
+        };
+        match bullet.migrated_to.as_ref() {
+            Some(m) => match m.target_date {
+                MigrationTarget::Date(d) => {
+                    self.go_to_date(d);
+                    self.status_message = Some(format!("Followed migration → {d}"));
+                }
+                MigrationTarget::Backlog => {
+                    self.status_message = Some("Migrated to backlog (no view yet)".to_string());
+                }
+            },
+            None => {
+                self.status_message = Some("Bullet hasn't been migrated".to_string());
+            }
+        }
+    }
+
+    fn action_open_migrate_picker(&mut self) {
+        let Some(id) = self.selected_bullet_id().map(|s| s.to_string()) else {
+            return;
+        };
+        let dates = bulletd_core::work_day::upcoming_work_days(
+            self.current_date,
+            &self.config.migration.work_days,
+            30,
+        );
+        self.migrate_picker = Some(MigratePicker::new(id, dates));
+    }
+
+    fn handle_key_migrate_picker(&mut self, key: KeyCode) {
+        let Some(ref mut picker) = self.migrate_picker else {
+            return;
+        };
+        picker.handle_key(key);
+
+        if picker.cancelled {
+            self.migrate_picker = None;
+            self.status_message = Some("Migrate cancelled".to_string());
+            return;
+        }
+        if picker.submitted {
+            let bullet_id = picker.bullet_id.clone();
+            let Some(target_date) = picker.selected_date() else {
+                self.migrate_picker = None;
+                return;
+            };
+            self.migrate_picker = None;
+            match self
+                .store
+                .migrate_task(self.current_date, &bullet_id, Some(target_date))
             {
                 Ok((_, target)) => {
                     self.status_message =
@@ -522,14 +608,18 @@ impl App {
         }
     }
 
-    fn action_backlog(&mut self) {
-        if let Some(id) = self.selected_bullet_id().map(|s| s.to_string()) {
-            match self.store.backlog_task(self.current_date, &id) {
-                Ok(_) => {
-                    self.status_message = Some("Moved to backlog".to_string());
-                    self.reload_bullets();
-                }
-                Err(e) => self.status_message = Some(format!("Error: {e}")),
+    fn action_back(&mut self) {
+        let Some(bullet) = self.bullets.get(self.selected) else {
+            return;
+        };
+        match bullet.migrated_from.as_ref() {
+            Some(m) => {
+                let d = m.source_date;
+                self.go_to_date(d);
+                self.status_message = Some(format!("Jumped back → {d}"));
+            }
+            None => {
+                self.status_message = Some("Bullet wasn't migrated from another day".to_string());
             }
         }
     }
@@ -657,33 +747,14 @@ impl App {
             _ => return,
         };
 
-        let target_date = self.current_date.succ_opt().unwrap_or(self.current_date);
+        let target_date = bulletd_core::work_day::next_work_day(
+            self.current_date,
+            &self.config.migration.work_days,
+        );
         match self
             .store
             .migrate_task(self.current_date, &id, Some(target_date))
         {
-            Ok(_) => self.advance_review(current, total),
-            Err(e) => self.status_message = Some(format!("Error: {e}")),
-        }
-    }
-
-    fn review_backlog(&mut self) {
-        let (id, current, total) = match &self.mode {
-            ViewMode::Review {
-                task_ids,
-                current,
-                total,
-            } => {
-                if let Some(id) = task_ids.get(*current) {
-                    (id.clone(), *current, *total)
-                } else {
-                    return;
-                }
-            }
-            _ => return,
-        };
-
-        match self.store.backlog_task(self.current_date, &id) {
             Ok(_) => self.advance_review(current, total),
             Err(e) => self.status_message = Some(format!("Error: {e}")),
         }
@@ -759,6 +830,11 @@ impl App {
             form.render(frame, frame.area(), &self.theme);
         }
 
+        // Render migrate picker overlay if active
+        if let Some(ref picker) = self.migrate_picker {
+            picker.render(frame, frame.area(), &self.theme);
+        }
+
         // Render help overlay on top of everything
         if self.show_help {
             self.render_help(frame);
@@ -779,7 +855,7 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " q:quit hjkl:nav a:add e:edit d:done o:open x:cancel D:del m:migrate b:backlog enter:grab r:review O:all-open g:group i:icons",
+            " q:quit hjkl:nav a:add e:edit d:done o:open x:cancel D:del m:migrate M:pick f:follow b:back enter:grab r:review O:all-open g:group i:icons",
         );
     }
 
@@ -840,7 +916,7 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    " — decide: done, cancel, migrate, or backlog",
+                    " — decide: done, cancel, or migrate",
                     Style::default().fg(self.theme.muted),
                 ),
             ]),
@@ -896,7 +972,7 @@ impl App {
         self.render_status_bar(
             frame,
             chunks[2],
-            " d:done  x:cancel  m:migrate  b:backlog  Esc:exit review",
+            " d:done  x:cancel  m:migrate  Esc:exit review",
         );
     }
 
@@ -1083,7 +1159,7 @@ impl App {
     fn render_help(&self, frame: &mut ratatui::Frame) {
         let area = frame.area();
         let width = 50u16.min(area.width.saturating_sub(4));
-        let height = 28u16.min(area.height.saturating_sub(4));
+        let height = 30u16.min(area.height.saturating_sub(4));
         let x = (area.width.saturating_sub(width)) / 2;
         let y = (area.height.saturating_sub(height)) / 2;
         let popup = Rect::new(x, y, width, height);
@@ -1100,9 +1176,11 @@ impl App {
   d            Mark done
   o            Set to open
   x            Cancel
-  m            Migrate to tomorrow
+  m            Migrate to next work day
+  M            Pick a work day to migrate to
+  f            Follow migration to target day
+  b            Jump back to source day
   u            Unmigrate
-  b            Move to backlog
   D            Delete
   Enter        Grab and reorder
 
@@ -1212,6 +1290,14 @@ impl App {
         if self.config.display.show_ids {
             spans.push(Span::styled(
                 format!(" ({})", bullet.id),
+                Style::default().fg(self.theme.muted),
+            ));
+        }
+        if let Some(ref m_to) = bullet.migrated_to
+            && let MigrationTarget::Date(d) = m_to.target_date
+        {
+            spans.push(Span::styled(
+                format!(" → {} {}", d.format("%a"), d.format("%Y-%m-%d")),
                 Style::default().fg(self.theme.muted),
             ));
         }

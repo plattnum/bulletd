@@ -1,6 +1,7 @@
 mod app;
 mod bullet_form;
 mod init;
+mod migrate_picker;
 mod theme;
 
 use clap::{Parser, Subcommand};

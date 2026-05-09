@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use chrono::Weekday;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
@@ -71,6 +72,76 @@ impl IconsConfig {
 pub struct MigrationConfig {
     /// Days before a task is flagged as stale during review
     pub stale_threshold: u32,
+    /// Weekdays that count as work days for the `m` migrate action.
+    /// Defaults to Mon–Fri when absent. Must be non-empty.
+    #[serde(
+        default = "default_work_days",
+        deserialize_with = "deserialize_work_days",
+        serialize_with = "serialize_work_days"
+    )]
+    pub work_days: Vec<Weekday>,
+}
+
+pub fn default_work_days() -> Vec<Weekday> {
+    use Weekday::*;
+    vec![Mon, Tue, Wed, Thu, Fri]
+}
+
+fn parse_weekday(s: &str) -> std::result::Result<Weekday, String> {
+    use Weekday::*;
+    match s.trim().to_lowercase().as_str() {
+        "mon" | "monday" => Ok(Mon),
+        "tue" | "tuesday" => Ok(Tue),
+        "wed" | "wednesday" => Ok(Wed),
+        "thu" | "thursday" => Ok(Thu),
+        "fri" | "friday" => Ok(Fri),
+        "sat" | "saturday" => Ok(Sat),
+        "sun" | "sunday" => Ok(Sun),
+        other => Err(format!("unknown weekday: {other:?}")),
+    }
+}
+
+fn weekday_short(w: Weekday) -> &'static str {
+    use Weekday::*;
+    match w {
+        Mon => "Mon",
+        Tue => "Tue",
+        Wed => "Wed",
+        Thu => "Thu",
+        Fri => "Fri",
+        Sat => "Sat",
+        Sun => "Sun",
+    }
+}
+
+fn deserialize_work_days<'de, D>(deserializer: D) -> std::result::Result<Vec<Weekday>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let strings: Vec<String> = Vec::deserialize(deserializer)?;
+    let mut out = Vec::with_capacity(strings.len());
+    for s in strings {
+        let w = parse_weekday(&s).map_err(serde::de::Error::custom)?;
+        if !out.contains(&w) {
+            out.push(w);
+        }
+    }
+    if out.is_empty() {
+        return Err(serde::de::Error::custom("work_days must not be empty"));
+    }
+    Ok(out)
+}
+
+fn serialize_work_days<S>(value: &[Weekday], serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+    let mut seq = serializer.serialize_seq(Some(value.len()))?;
+    for w in value {
+        seq.serialize_element(weekday_short(*w))?;
+    }
+    seq.end()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -155,6 +226,7 @@ show_ids = false
 
 [migration]
 stale_threshold = 3
+work_days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 
 [theme]
 background = "#1a1b26"
@@ -176,6 +248,7 @@ muted = "#565f89"
         assert_eq!(config.display.date_format, "%Y-%m-%d");
         assert!(!config.display.show_ids);
         assert_eq!(config.migration.stale_threshold, 3);
+        assert_eq!(config.migration.work_days, default_work_days());
         assert_eq!(config.theme.background, "#1a1b26");
         assert_eq!(config.theme.foreground, "#c0caf5");
         assert_eq!(config.theme.accent, "#7aa2f7");
@@ -258,7 +331,6 @@ muted = "#565f89"
     #[test]
     fn resolve_data_dir_with_tilde() {
         let resolved = resolve_data_dir("~/.local/share/bulletd/logs");
-        // Should expand ~ to home directory
         assert!(!resolved.to_string_lossy().starts_with('~'));
         assert!(
             resolved
@@ -271,5 +343,115 @@ muted = "#565f89"
     fn resolve_data_dir_absolute() {
         let resolved = resolve_data_dir("/tmp/bulletd/logs");
         assert_eq!(resolved, PathBuf::from("/tmp/bulletd/logs"));
+    }
+
+    // --- work_days field tests --------------------------------------------------
+
+    fn config_toml_with_migration(migration_block: &str) -> String {
+        format!(
+            r##"[general]
+data_dir = "~/.local/share/bulletd/logs"
+lookback_days = 7
+
+[display]
+date_format = "%Y-%m-%d"
+show_ids = false
+
+[migration]
+{migration_block}
+
+[theme]
+background = "#1a1b26"
+foreground = "#c0caf5"
+accent = "#7aa2f7"
+success = "#9ece6a"
+warning = "#e0af68"
+error = "#f7768e"
+muted = "#565f89"
+"##
+        )
+    }
+
+    #[test]
+    fn work_days_default_applied_when_absent() {
+        let toml = config_toml_with_migration("stale_threshold = 3");
+        let config: Config = toml::from_str(&toml).unwrap();
+        assert_eq!(config.migration.work_days, default_work_days());
+    }
+
+    #[test]
+    fn work_days_empty_list_rejected() {
+        let toml = config_toml_with_migration("stale_threshold = 3\nwork_days = []");
+        let result: Result<Config, _> = toml::from_str(&toml);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("work_days must not be empty"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn work_days_case_insensitive_abbreviations() {
+        use Weekday::*;
+        let toml = config_toml_with_migration(
+            "stale_threshold = 3\nwork_days = [\"mon\", \"TUE\", \"Wed\"]",
+        );
+        let config: Config = toml::from_str(&toml).unwrap();
+        assert_eq!(config.migration.work_days, vec![Mon, Tue, Wed]);
+    }
+
+    #[test]
+    fn work_days_full_names_accepted() {
+        use Weekday::*;
+        let toml = config_toml_with_migration(
+            "stale_threshold = 3\nwork_days = [\"Monday\", \"Friday\", \"Saturday\"]",
+        );
+        let config: Config = toml::from_str(&toml).unwrap();
+        assert_eq!(config.migration.work_days, vec![Mon, Fri, Sat]);
+    }
+
+    #[test]
+    fn work_days_unknown_name_rejected() {
+        let toml = config_toml_with_migration("stale_threshold = 3\nwork_days = [\"Funday\"]");
+        let result: Result<Config, _> = toml::from_str(&toml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn work_days_duplicates_deduplicated() {
+        use Weekday::*;
+        let toml = config_toml_with_migration(
+            "stale_threshold = 3\nwork_days = [\"Mon\", \"Mon\", \"Tue\"]",
+        );
+        let config: Config = toml::from_str(&toml).unwrap();
+        assert_eq!(config.migration.work_days, vec![Mon, Tue]);
+    }
+
+    #[test]
+    fn work_days_serialize_uses_canonical_short_form() {
+        use Weekday::*;
+        let mut config: Config = toml::from_str(sample_config_toml()).unwrap();
+        config.migration.work_days = vec![Mon, Thu, Fri];
+        let serialized = toml::to_string_pretty(&config).unwrap();
+        for token in ["\"Mon\"", "\"Thu\"", "\"Fri\""] {
+            assert!(
+                serialized.contains(token),
+                "missing {token} in serialized output:\n{serialized}"
+            );
+        }
+        // No long-name leakage.
+        assert!(!serialized.contains("\"Monday\""));
+        assert!(!serialized.contains("\"Thursday\""));
+    }
+
+    #[test]
+    fn work_days_round_trip_irregular() {
+        use Weekday::*;
+        let mut original: Config = toml::from_str(sample_config_toml()).unwrap();
+        original.migration.work_days = vec![Mon, Thu, Fri];
+        let serialized = toml::to_string_pretty(&original).unwrap();
+        let reparsed: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(reparsed.migration.work_days, vec![Mon, Thu, Fri]);
     }
 }

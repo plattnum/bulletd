@@ -43,7 +43,11 @@ pub struct BulletForm {
 
 pub enum FormMode {
     Add,
-    Edit { bullet_id: String },
+    Edit {
+        bullet_id: String,
+        /// Optional pre-formatted migration label, e.g. "→ Tue 2026-05-12".
+        migration_label: Option<String>,
+    },
 }
 
 /// Result of the form after submission.
@@ -70,7 +74,12 @@ impl BulletForm {
     }
 
     /// Create a form pre-filled for editing an existing bullet.
-    pub fn new_edit(bullet_id: String, text: &str, existing_notes: &[String]) -> Self {
+    pub fn new_edit(
+        bullet_id: String,
+        text: &str,
+        existing_notes: &[String],
+        migration_label: Option<String>,
+    ) -> Self {
         let mut notes = TextArea::new(
             existing_notes
                 .iter()
@@ -81,7 +90,10 @@ impl BulletForm {
         notes.set_cursor_style(Style::default().add_modifier(Modifier::REVERSED));
         let cursor_pos = text.len();
         Self {
-            mode: FormMode::Edit { bullet_id },
+            mode: FormMode::Edit {
+                bullet_id,
+                migration_label,
+            },
             text_buffer: text.to_string(),
             cursor_pos,
             notes,
@@ -207,9 +219,15 @@ impl BulletForm {
         frame.render_widget(Clear, popup);
 
         // Popup border
-        let title = match &self.mode {
-            FormMode::Add => " Add Bullet ",
-            FormMode::Edit { .. } => " Edit Bullet ",
+        let title: String = match &self.mode {
+            FormMode::Add => " Add Bullet ".to_string(),
+            FormMode::Edit {
+                bullet_id,
+                migration_label,
+            } => match migration_label {
+                Some(label) => format!(" Edit Bullet ({bullet_id}) {label} "),
+                None => format!(" Edit Bullet ({bullet_id}) "),
+            },
         };
         let block = Block::default()
             .borders(Borders::ALL)

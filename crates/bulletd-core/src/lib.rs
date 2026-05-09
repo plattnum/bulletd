@@ -5,6 +5,7 @@ pub mod model;
 pub mod ops;
 pub mod parser;
 pub mod serializer;
+pub mod work_day;
 
 // Convenience re-exports
 pub use config::{Config, config_path, load_config, load_config_from, resolve_data_dir};
